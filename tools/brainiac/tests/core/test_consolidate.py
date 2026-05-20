@@ -94,7 +94,7 @@ def test_consolidation_candidates_returns_qualified_note(fake_brainiac):
     good = next(c for c in candidates if c["id"] == "2026-05-17-good")
     assert set(good.keys()) >= {"id", "path", "access_count", "last_access", "fan_in", "suggested_type"}
     assert good["fan_in"] >= 1
-    assert good["suggested_type"] in ("semantic", "episodic")
+    assert good["suggested_type"] == "semantic"
 
 
 def test_promote_note_moves_file_to_target_dir(fake_brainiac):
@@ -161,3 +161,28 @@ def test_promote_note_raises_for_unknown_note(fake_brainiac):
     conn = connect(index_db_path(fake_brainiac))
     with pytest.raises(KeyError):
         promote_note(conn, fake_brainiac, "2026-05-17-ghost", "semantic")
+
+
+def test_promote_note_raises_for_semantic_note(fake_brainiac):
+    from brainiac.core.consolidate import promote_note
+
+    # semantic note should not be promotable via promote_note
+    fm = make_fm("2026-05-17-sem-type", note_type="semantic",
+                 access_count=4, last_access=RECENT)
+    p = note_path(fake_brainiac, "2026-05-17-sem-type", "semantic")
+    write_note(p, fm, "# sem\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# sem\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    with pytest.raises(KeyError):
+        promote_note(conn, fake_brainiac, "2026-05-17-sem-type", "semantic")
+
+
+def test_promote_note_raises_for_invalid_target_type(fake_brainiac):
+    from brainiac.core.consolidate import promote_note
+
+    _seed(fake_brainiac, "2026-05-17-badtype", "working",
+          access_count=4, last_access=RECENT)
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(ValueError, match="target_type"):
+        promote_note(conn, fake_brainiac, "2026-05-17-badtype", "working")

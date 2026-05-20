@@ -60,6 +60,10 @@ def promote_note(
     Moves file, updates type and resets strength to 1.0, reindexes, logs event.
     Returns new relative path. Raises KeyError if note not found.
     """
+    _VALID_TARGET_TYPES = {"semantic", "episodic"}
+    if target_type not in _VALID_TARGET_TYPES:
+        raise ValueError(f"target_type must be one of {_VALID_TARGET_TYPES}, got: {target_type!r}")
+
     from brainiac.core.events import log_event
     from brainiac.core.index import index_note
     from brainiac.core.note import parse_note, write_note
@@ -86,7 +90,7 @@ def promote_note(
 
     fm = fm.model_copy(update={"type": target_type, "strength": 1.0})
     write_note(new_path, fm, body)
-    index_note(conn, fm, body, new_rel)
+    index_note(conn, fm, body, new_rel, archived=False)
 
     log_event(root, note_id, "promoted", f"{old_rel} → {new_rel} (type={target_type})")
     return new_rel
