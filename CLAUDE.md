@@ -4,34 +4,114 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-**Brainiac** is a personal "second brain" knowledge base built from Markdown files. It is not a software project — there is no build system, no tests, no executable code. Future work in this repo will primarily consist of authoring, organizing, and transferring `.md` notes between memory directories.
+**Brainiac** is two things in one repo:
 
-Content language is **Brazilian Portuguese** (see `README.md`). Write notes in pt-BR unless the user asks otherwise.
+1. **A personal knowledge base** — `.md` notes filed in cognitive-science-inspired memory directories (`longMemory/`, `shortMemory/`, `semanticMemory/`, with `memoryTransfer/` as the system layer for index + archive + logs).
+2. **A Python software project** in `tools/brainiac/` that powers the knowledge base: MCP server (stdio), CLI, SQLite index (FTS5 + sqlite-vec embeddings), Ebbinghaus decay, SuperMemo-2 spaced repetition, and a pt-BR type classifier.
 
-## Memory model
+Content language is **Brazilian Portuguese**. Write notes and user-facing strings in pt-BR unless asked otherwise. Code, comments, docstrings, and commit messages are in English (commit subject line OK in pt-BR for project-specific terminology).
 
-The directory layout mirrors a cognitive-science model of human memory. Each top-level directory corresponds to a memory type and notes should be filed accordingly:
+## Memory model (content side)
 
-- **`longMemory/`** — Long-term retention. Information meant to persist indefinitely (years, lifetime).
-- **`shortMemory/`** — Short-term / working memory. Transient notes (~20 seconds in the metaphor — in practice, scratch notes being actively worked on or rehearsed). Treat as a staging area.
-- **`semanticMemory/`** — World knowledge / facts. Organized factual knowledge independent of personal experience (e.g., historical dates, definitions).
-- **`memoryTransfer/`** — Promotion/demotion logic between the memories above. Referenced in `README.md` but **does not yet exist** as a directory; create it if/when transfer rules need to be encoded.
+The directory layout mirrors a cognitive-science model of human memory:
 
-When the user adds a note, ask (or infer from context) which memory it belongs to rather than defaulting to one.
+- **`longMemory/episodic/`** — narrative pessoal com timestamp ("hoje fui à reunião"); persiste indefinidamente.
+- **`shortMemory/`** — working memory; limite configurável (default 9 itens ativos via `brainiac.toml`). O sistema **recusa** adicionar quando cheia, retornando candidatos a promover/descartar.
+- **`semanticMemory/`** — fatos/conceitos descontextualizados ("BM25 é uma função de ranking probabilística").
+- **`memoryTransfer/`** — sistema (não conteúdo): `index.sqlite`, `archive/<ano>/`, `logs/events.jsonl`.
 
-## Content convention: "tokenized" storage
+Tipo (`episodic` / `semantic` / `working`) é determinado pelo classificador heurístico em `core/classifier.py` quando capturamos via skill `brainiac-capture`. Se o classificador retornar ambíguo, pergunte ao usuário.
 
-`README.md` instructs that information be saved in a **token-optimized format** to make future searches and Claude interactions cheaper. Practical interpretation when writing notes:
+## Note conventions (token-optimized)
 
-- Prefer dense bullet points and short noun phrases over prose paragraphs.
-- Strip filler words, articles, and redundant context that a future reader (human or LLM) can reconstruct from the surrounding note.
-- Use consistent kebab-case or descriptive filenames so notes are greppable.
-- Avoid duplicating the same fact across memory directories — instead, link by relative path.
+Notas são `.md` com frontmatter YAML carregando metadata cognitiva (`type`, `created`, `last_access`, `access_count`, `strength`, `links`, `tags`, opcionalmente `sm2`).
 
-This is the single most important repo-specific rule: terseness is a feature, not a style choice.
+- Bullets densos > prosa. Evite filler ("Esta nota fala sobre...", "Em resumo...").
+- Cross-refs com `[[outro-id]]` — parser converte em links explícitos no índice.
+- IDs no formato `YYYY-MM-DD-slug` (kebab-case, ≤ 40 chars, descritivo).
+- Nunca duplicar fato entre memórias — linkar.
+
+Terseness é regra dura, não preferência estilística — texto longo encarece recall futuro.
+
+## Software architecture (`tools/brainiac/`)
+
+```
+tools/brainiac/brainiac/
+├── core/
+│   ├── models.py          # Pydantic v2: NoteFrontmatter, SM2
+│   ├── note.py            # parse/write .md + frontmatter
+│   ├── paths.py           # find_root, note_path, index_db_path
+│   ├── index.py           # SQLite + FTS5 + vec0; recall(), reindex_all()
+│   ├── embeddings.py      # sentence-transformers lazy-load
+│   ├── graph.py           # 1-hop expansion no grafo de links
+│   ├── events.py          # logger append-only events.jsonl
+│   ├── decay.py           # Ebbinghaus (S, R) + archive_note + run_decay
+│   ├── consolidate.py     # candidates + promote_note (working → long)
+│   ├── sm2.py             # SuperMemo-2 + review_queue + grade_review
+│   ├── working_memory.py  # count + candidates + capacity check + status
+│   ├── classifier.py      # heurística léxica pt-BR
+│   └── config.py          # brainiac.toml loader (frozen dataclass)
+├── mcp_server.py          # 11 MCP tools registradas
+└── cli.py                 # 7 comandos click
+```
+
+**Padrão arquitetural recorrente:** módulos do `core/` separam funções puras (pure math/SQL helpers, sem I/O) de I/O (toca disco + DB + log). Veja `decay.py` e `sm2.py` como exemplos canônicos.
 
 ## Working in this repo
 
-- Use the `Write` and `Edit` tools to create/modify `.md` files directly. No commands to run.
-- This is **not** a git repository (verified via environment); do not attempt `git` operations unless the user initializes one.
-- There is no README to keep in sync beyond the one already present — but if you significantly restructure the memory model, update `README.md` to match.
+### Comandos comuns
+
+```bash
+# Setup uma vez
+cd tools/brainiac && python3.11 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+
+# Rodar suite (exclui testes que carregam embeddings — lentos)
+.venv/bin/pytest --ignore=tests/core/test_embeddings.py
+
+# Suite com cobertura
+.venv/bin/pytest --cov=brainiac --cov-report=term-missing --ignore=tests/core/test_embeddings.py
+
+# Sub-suite específica
+.venv/bin/pytest tests/core/test_sm2.py -v --no-cov
+
+# CLI
+.venv/bin/brainiac reindex
+.venv/bin/brainiac stats
+.venv/bin/brainiac decay --dry-run
+.venv/bin/brainiac review
+.venv/bin/brainiac classify path/to/nota.md
+.venv/bin/brainiac mcp        # servidor stdio para Claude Code
+```
+
+### Convenções de código
+
+- **TDD obrigatório** para novas features no `core/`: RED (teste falha) → GREEN (implementação mínima) → commit. Veja qualquer plano em `docs/superpowers/plans/` para o padrão.
+- **Cobertura ≥ 80%** por módulo do `core/` — ideal 100% para módulos puros.
+- **Asserções concretas, nunca tautológicas.** Pinning de valor (`assert ease == pytest.approx(2.18)`) > `assert ease < 2.5`. Code reviewers pegam isso e exigem fix.
+- **Sem novas deps pip sem justificativa.** Phase 0-4 inteira foi entregue só com `mcp`, `pydantic`, `python-frontmatter`, `sentence-transformers`, `sqlite-vec`, `click` + stdlib.
+- **Lazy imports** dentro de funções MCP/CLI para evitar ciclos e custos de cold start.
+- **Sem comentários óbvios.** Docstrings só onde o WHY não é trivial (ex: fórmula SM-2, branch de decay).
+- **`pt-BR` em descrições de MCP tools e mensagens de skill**; código/docstrings em inglês.
+
+### Git workflow
+
+Repositório git com `main` como branch base. Fases novas → branch `phase-N-<short-name>` → merge `--no-ff` com mensagem detalhada. Workflow ilustrado nas fases já mergeadas:
+
+```bash
+git log --oneline main      # ver entregas anteriores
+git checkout -b phase-N-foo
+# ... TDD loop, commits frequentes ...
+git checkout main && git merge --no-ff phase-N-foo
+git branch -d phase-N-foo
+```
+
+### Planejamento e execução com superpowers
+
+Para features grandes: skills `superpowers:writing-plans` (gera plano detalhado em `docs/superpowers/plans/`) + `superpowers:subagent-driven-development` (executa task-por-task com revisão de spec compliance + code quality). As 4 fases entregues seguiram esse pipeline; planos servem como referência viva.
+
+## State atual
+
+- **204 testes verdes** (fora `test_embeddings.py` que é slow)
+- Roadmap de 5 fases (Foundation → Recall → Decay → SM-2 → Working memory) completo
+- Specs e planos em `docs/superpowers/`
+- Licença MIT
