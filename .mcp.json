@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "brainiac": {
+      "command": "brainiac",
+      "args": ["mcp"]
+    }
+  }
+}
