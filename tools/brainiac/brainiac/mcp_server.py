@@ -1,8 +1,9 @@
 """MCP server exposing brainiac tools via stdio.
 
-Tools (10): add_note, recall, get_note, link, list_recent,
+Tools (11): add_note, recall, get_note, link, list_recent,
             consolidate_check, forget,
-            review_queue, grade_review, start_review
+            review_queue, grade_review, start_review,
+            working_status
 """
 
 import asyncio
@@ -34,8 +35,31 @@ def tool_add_note(
     tags: list[str] | None = None,
     study: bool = False,
 ) -> dict:
-    """Create a new note. Body should start with '# title'. If study=True, enrolls in SM-2."""
+    """Create a new note. Body should start with '# title'.
+
+    If note_type='working' and shortMemory is full per config, returns a
+    structured error with eviction candidates instead of creating the note.
+    If study=True, enrolls in SM-2.
+    """
     root = find_root()
+
+    if note_type == "working":
+        from brainiac.core.config import load_config
+        from brainiac.core.working_memory import (
+            WorkingMemoryFullError,
+            check_working_capacity,
+        )
+        conn = connect(index_db_path(root))
+        try:
+            check_working_capacity(conn, load_config(root))
+        except WorkingMemoryFullError as exc:
+            return {
+                "error": str(exc),
+                "count": exc.count,
+                "limit": exc.limit,
+                "suggestion": exc.candidates,
+            }
+
     fm = new_note(note_id=note_id, note_type=note_type, tags=tags or [])
 
     if study:
@@ -138,6 +162,15 @@ def tool_start_review(note_id: str) -> dict:
         "reps": sm2.reps,
         "next_review": sm2.next_review.isoformat(),
     }
+
+
+def tool_working_status() -> dict:
+    """Snapshot of shortMemory occupancy + eviction candidates if full."""
+    from brainiac.core.config import load_config
+    from brainiac.core.working_memory import working_status
+    root = find_root()
+    conn = connect(index_db_path(root))
+    return working_status(conn, load_config(root))
 
 
 # --- MCP server plumbing ---
@@ -268,6 +301,14 @@ async def _list_tools() -> list[Tool]:
                 "required": ["note_id"],
             },
         ),
+        Tool(
+            name="working_status",
+            description=(
+                "Snapshot do estado da shortMemory: ocupação atual, limite configurado, "
+                "se está cheia, e candidatos a promover/descartar quando cheia."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -282,6 +323,7 @@ _DISPATCH = {
     "review_queue": tool_review_queue,
     "grade_review": tool_grade_review,
     "start_review": tool_start_review,
+    "working_status": tool_working_status,
 }
 
 

@@ -210,3 +210,79 @@ def test_tool_grade_review_updates_state(fake_brainiac, monkeypatch):
     assert result["interval"] == 1  # first successful rep: interval stays at 1
     assert result["ease"] > 2.5  # grade=5 raises ease (2.5 → 2.6)
     assert "next_review" in result
+
+
+def test_tool_add_note_rejects_working_when_full(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    (fake_brainiac / "brainiac.toml").write_text(
+        "working_memory_limit = 2\n", encoding="utf-8"
+    )
+    from brainiac.mcp_server import tool_add_note
+
+    tool_add_note(
+        note_id="2026-05-20-w-a", note_type="working",
+        title="A", body="# A\n\nx",
+    )
+    tool_add_note(
+        note_id="2026-05-20-w-b", note_type="working",
+        title="B", body="# B\n\ny",
+    )
+    result = tool_add_note(
+        note_id="2026-05-20-w-c", note_type="working",
+        title="C", body="# C\n\nz",
+    )
+    assert "error" in result
+    assert result["count"] == 2
+    assert result["limit"] == 2
+    assert isinstance(result["suggestion"], list)
+    assert len(result["suggestion"]) >= 1
+    # file should NOT be created
+    assert not (fake_brainiac / "shortMemory" / "2026-05-20-w-c.md").exists()
+
+
+def test_tool_add_note_allows_semantic_at_working_limit(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    (fake_brainiac / "brainiac.toml").write_text(
+        "working_memory_limit = 1\n", encoding="utf-8"
+    )
+    from brainiac.mcp_server import tool_add_note
+
+    tool_add_note(
+        note_id="2026-05-20-w-fill", note_type="working",
+        title="W", body="# W\n\nbody",
+    )
+    # semantic note should still go through
+    result = tool_add_note(
+        note_id="2026-05-20-s-ok", note_type="semantic",
+        title="S", body="# S\n\nbody",
+    )
+    assert "error" not in result
+    assert result["type"] == "semantic"
+
+
+def test_tool_working_status_reports_empty_brainiac(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_working_status
+
+    status = tool_working_status()
+    assert status["count"] == 0
+    assert status["limit"] == 9  # default
+    assert status["full"] is False
+    assert status["candidates"] == []
+
+
+def test_tool_working_status_reports_full_with_candidates(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    (fake_brainiac / "brainiac.toml").write_text(
+        "working_memory_limit = 2\n", encoding="utf-8"
+    )
+    from brainiac.mcp_server import tool_add_note, tool_working_status
+
+    tool_add_note(note_id="2026-05-20-ws-a", note_type="working", title="A", body="# A")
+    tool_add_note(note_id="2026-05-20-ws-b", note_type="working", title="B", body="# B")
+
+    status = tool_working_status()
+    assert status["count"] == 2
+    assert status["limit"] == 2
+    assert status["full"] is True
+    assert len(status["candidates"]) == 2
