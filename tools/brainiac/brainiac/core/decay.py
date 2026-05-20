@@ -96,6 +96,8 @@ def run_decay(
 
     for note_id, last_access_str, access_count in rows:
         last_access = datetime.fromisoformat(last_access_str)
+        if last_access.tzinfo is None:
+            last_access = last_access.replace(tzinfo=timezone.utc)
         new_s = updated_strength(last_access, access_count, now=now)
 
         if not dry_run:

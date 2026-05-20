@@ -247,3 +247,4 @@ def test_run_decay_dry_run_does_not_archive(fake_brainiac):
 
     assert stats["archived"] >= 1
     assert (fake_brainiac / "semanticMemory" / "2026-03-21-dry.md").exists()
+    assert stats["updated"] == 0  # dry_run skips DB writes
