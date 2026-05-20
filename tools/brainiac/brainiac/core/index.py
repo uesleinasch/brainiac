@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite_vec
 
 from brainiac.core import embeddings
+from brainiac.core.graph import NEIGHBOR_DECAY, neighbors_of
 from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
@@ -294,3 +295,75 @@ def add_link(
         fm.links.append(dst)
         write_note(full, fm, body)
         index_note(conn, fm, body, rel_path)
+
+
+def _fallback_fts(conn: sqlite3.Connection, query: str, k: int) -> list[dict]:
+    out = []
+    for r in search_fts(conn, query, k=k):
+        out.append({
+            "id": r["id"], "path": r["path"], "type": r["type"],
+            "title": r["title"], "snippet": r.get("snippet", ""),
+            "score": 0.0, "origin": "fts",
+        })
+    return out
+
+
+def recall(
+    conn: sqlite3.Connection,
+    query: str,
+    k: int = 5,
+) -> list[dict]:
+    """Recall associativo: semantic top-k + 1-hop expansion + badges.
+
+    Falls back to FTS5 if embeddings model unavailable.
+    """
+    if not embeddings.model_available():
+        try:
+            embeddings.embed_query("warmup")
+        except Exception:
+            return _fallback_fts(conn, query, k)
+
+    try:
+        seeds = search_vec(conn, query, k=k)
+    except Exception:
+        return _fallback_fts(conn, query, k)
+
+    scored: dict[str, dict] = {}
+    for s in seeds:
+        scored[s["id"]] = {
+            "id": s["id"],
+            "path": s["path"],
+            "type": s["type"],
+            "title": s["title"],
+            "score": float(s["score"]),
+            "origin": "semantic",
+        }
+
+    for s in seeds:
+        seed_score = float(s["score"])
+        for dst, meta in neighbors_of(conn, s["id"]).items():
+            neighbor_score = seed_score * NEIGHBOR_DECAY * float(meta["weight"])
+            if dst in scored:
+                if scored[dst]["origin"] == "semantic":
+                    scored[dst]["origin"] = "both"
+                scored[dst]["score"] = max(scored[dst]["score"], neighbor_score)
+            else:
+                row = conn.execute(
+                    "SELECT path, type FROM notes WHERE id = ?", (dst,)
+                ).fetchone()
+                if row is None:
+                    continue
+                title_row = conn.execute(
+                    "SELECT title FROM notes_fts WHERE id = ?", (dst,)
+                ).fetchone()
+                scored[dst] = {
+                    "id": dst,
+                    "path": row[0],
+                    "type": row[1],
+                    "title": title_row[0] if title_row else "",
+                    "score": neighbor_score,
+                    "origin": meta["kind"],
+                }
+
+    results = sorted(scored.values(), key=lambda r: r["score"], reverse=True)
+    return results[:k]
