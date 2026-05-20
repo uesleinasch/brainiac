@@ -286,3 +286,42 @@ def test_tool_working_status_reports_full_with_candidates(fake_brainiac, monkeyp
     assert status["limit"] == 2
     assert status["full"] is True
     assert len(status["candidates"]) == 2
+
+
+def test_tool_inspect_note_returns_all_three_axes(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_inspect_note
+
+    tool_add_note(
+        note_id="2026-05-20-insp", note_type="semantic",
+        title="x", body="# x\n\nbody",
+    )
+    result = tool_inspect_note("2026-05-20-insp")
+    assert result["id"] == "2026-05-20-insp"
+    assert "activation" in result
+    assert "strength" in result
+    assert "sm2" in result
+    assert "recent_accesses" in result
+
+
+def test_tool_inspect_note_includes_recent_accesses(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_get_note, tool_inspect_note
+
+    tool_add_note(
+        note_id="2026-05-20-h2", note_type="semantic",
+        title="x", body="# x\n\nbody",
+    )
+    tool_get_note("2026-05-20-h2")  # records 'get'
+    result = tool_inspect_note("2026-05-20-h2")
+    assert len(result["recent_accesses"]) >= 1
+    sources = {a["source"] for a in result["recent_accesses"]}
+    assert "get" in sources
+
+
+def test_tool_inspect_note_raises_for_unknown_note(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_inspect_note
+
+    with pytest.raises(KeyError):
+        tool_inspect_note("2026-05-20-ghost-insp")
