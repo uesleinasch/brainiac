@@ -54,10 +54,11 @@ def test_grade_5_third_review_uses_new_ease_multiplier():
     today = date(2026, 5, 27)
     sm2 = SM2(ease=2.6, interval=6, reps=2, next_review=today)
     out = grade(sm2, q=5, today=today)
+    # new_ease = 2.6 + 0.1 = 2.7; interval = round(6 * 2.7) = 16
     assert out.reps == 3
-    # new_ease ≈ 2.7; interval = round(6 * 2.7) = 16
-    assert out.interval == round(6 * out.ease)
-    assert out.next_review == today + timedelta(days=out.interval)
+    assert out.ease == pytest.approx(2.7, abs=1e-6)
+    assert out.interval == 16
+    assert out.next_review == today + timedelta(days=16)
 
 
 def test_grade_0_resets_reps_and_interval():
@@ -79,7 +80,8 @@ def test_grade_2_treated_as_failure():
     out = grade(sm2, q=2, today=today)
     assert out.reps == 0
     assert out.interval == 1
-    assert out.ease < 2.5  # ease still drops on failure
+    # ease = 2.5 + 0.1 - 3*(0.08 + 3*0.02) = 2.6 - 0.42 = 2.18
+    assert out.ease == pytest.approx(2.18, abs=1e-6)
 
 
 def test_grade_3_passes_minimally():
