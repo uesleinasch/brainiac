@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Importante
+
+- Sempre use o plugin context-mode
+- Sempre use o superpower para execução de tarefas
+
 ## Project overview
 
 **Brainiac** is two things in one repo:
