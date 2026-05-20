@@ -22,7 +22,6 @@ from brainiac.core.index import (
     get_note,
     index_note,
     list_recent,
-    search_fts,
 )
 from brainiac.core.note import new_note, write_note
 from brainiac.core.paths import find_root, index_db_path, note_path
@@ -55,10 +54,11 @@ def tool_add_note(
 
 
 def tool_recall(query: str, k: int = 5) -> list[dict]:
-    """BM25 top-k search."""
+    """Recall associativo (semantic + 1-hop) com fallback para FTS5."""
+    from brainiac.core.index import recall
     root = find_root()
     conn = connect(index_db_path(root))
-    return search_fts(conn, query, k=k)
+    return recall(conn, query, k=k)
 
 
 def tool_get_note(note_id: str) -> dict:
@@ -108,7 +108,11 @@ async def _list_tools() -> list[Tool]:
         ),
         Tool(
             name="recall",
-            description="BM25 top-k search over notes.",
+            description=(
+                "Recall associativo: top-k semântico (embeddings 384-dim) + expansão 1-hop "
+                "no grafo. Cada item retorna origin ∈ {semantic, explicit, implicit, both, fts}. "
+                "FTS5 fica como fallback se o modelo de embeddings falhar."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {

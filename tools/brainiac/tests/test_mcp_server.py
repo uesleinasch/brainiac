@@ -68,3 +68,20 @@ class TestToolListRecent:
         results = tool_list_recent(limit=10)
         assert len(results) == 1
         assert results[0]["id"] == "2026-05-20-a"
+
+
+def test_tool_recall_returns_origin_badge(fake_brainiac, embedder_stub, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+
+    from brainiac.mcp_server import tool_add_note, tool_recall
+
+    tool_add_note(
+        note_id="2026-05-20-recall-mcp",
+        note_type="semantic",
+        title="DKG protocol",
+        body="distributed key generation",
+        tags=["crypto"],
+    )
+    results = tool_recall(query="DKG", k=3)
+    assert len(results) >= 1
+    assert all("origin" in r for r in results)
