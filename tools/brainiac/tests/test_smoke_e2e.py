@@ -148,3 +148,101 @@ def test_recall_latency_under_500ms_for_modest_corpus(fake_brainiac, monkeypatch
     tool_recall(query="topico variado", k=5)
     elapsed_ms = (time.perf_counter() - t0) * 1000
     assert elapsed_ms < 500, f"recall took {elapsed_ms:.1f}ms"
+
+
+# --- DoD Phase 2 ---
+
+from datetime import datetime, timedelta, timezone
+
+
+def test_decay_archives_note_not_accessed_30_days(fake_brainiac, monkeypatch):
+    """DoD: nota não acessada por 30 dias com access_count=1 é arquivada."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.decay import run_decay
+    from tests.conftest import make_fm
+
+    last = datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+
+    fm = make_fm("2026-04-20-stale-dod", "semantic",
+                 access_count=1, last_access=last)
+    p = note_path(fake_brainiac, "2026-04-20-stale-dod", "semantic")
+    write_note(p, fm, "# Stale DoD\n\nconteúdo")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# Stale DoD\n\nconteúdo",
+               str(p.relative_to(fake_brainiac)))
+
+    stats = run_decay(conn, fake_brainiac, now=now)
+    assert stats["archived"] >= 1
+    archived = fake_brainiac / "memoryTransfer" / "archive"
+    assert any(archived.rglob("2026-04-20-stale-dod.md"))
+
+
+def test_archived_note_excluded_from_recall_by_default(fake_brainiac, embedder_stub, monkeypatch):
+    """DoD: notas arquivadas não aparecem em recall por default."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    fm = make_fm("2026-05-20-hidden", "semantic")
+    write_note(fake_brainiac / "semanticMemory" / "2026-05-20-hidden.md",
+               fm, "# Hidden\n\nconteúdo escondido arquivado")
+    index_note(conn, fm, "# Hidden\n\nconteúdo escondido arquivado",
+               "semanticMemory/2026-05-20-hidden.md", archived=True)
+
+    results = recall(conn, "conteúdo escondido arquivado", k=5)
+    assert all(r["id"] != "2026-05-20-hidden" for r in results)
+
+    results_inc = recall(conn, "conteúdo escondido arquivado", k=5, include_archived=True)
+    assert any(r["id"] == "2026-05-20-hidden" for r in results_inc)
+
+
+def test_consolidate_check_finds_qualified_working_note(fake_brainiac, monkeypatch):
+    """DoD: nota acessada 3x na semana com link recebido aparece em consolidate_check."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.consolidate import consolidation_candidates
+    from tests.conftest import make_fm
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    fm = make_fm("2026-05-18-cand-dod", note_type="working",
+                 access_count=3, last_access=recent)
+    p = note_path(fake_brainiac, "2026-05-18-cand-dod", "working")
+    write_note(p, fm, "# Cand DoD\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# Cand DoD\n\nbody",
+               str(p.relative_to(fake_brainiac)))
+    conn.execute(
+        "INSERT OR IGNORE INTO links(src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+        ("2026-05-15-linker", "2026-05-18-cand-dod"),
+    )
+    conn.commit()
+
+    candidates = consolidation_candidates(conn, now=now)
+    assert any(c["id"] == "2026-05-18-cand-dod" for c in candidates)
+
+
+def test_housekeep_report_is_readable(fake_brainiac, monkeypatch):
+    """DoD: relatório brainiac-housekeep é legível (decay stats + consolidate list)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from click.testing import CliRunner
+    from brainiac.cli import main
+
+    # Sem notas — relatório deve ser limpo e sem crash
+    result = CliRunner().invoke(main, ["decay"])
+    assert result.exit_code == 0
+    assert "checked" in result.output
+
+    result2 = CliRunner().invoke(main, ["consolidate", "--auto"])
+    assert result2.exit_code == 0
+    assert "No candidates" in result2.output or "Promoted" in result2.output
