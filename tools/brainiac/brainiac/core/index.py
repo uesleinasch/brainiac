@@ -80,6 +80,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
+
+    # Phase 5: accesses table for ACT-R activation
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS accesses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id TEXT NOT NULL,
+            ts TEXT NOT NULL,
+            source TEXT NOT NULL CHECK(source IN ('get', 'review', 'recall_hit', 'link_in')),
+            weight REAL NOT NULL DEFAULT 1.0,
+            FOREIGN KEY (note_id) REFERENCES notes(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_accesses_note_ts ON accesses(note_id, ts);
+    """)
     conn.commit()
     return conn
 

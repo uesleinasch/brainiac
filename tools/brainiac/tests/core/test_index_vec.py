@@ -1,6 +1,7 @@
 import re
 import sqlite3
 
+import pytest
 import sqlite_vec
 
 from brainiac.core.index import connect, index_note, recall, reindex_all, search_vec
@@ -154,3 +155,47 @@ def test_recall_does_not_return_archived_neighbor_via_1hop(fake_brainiac, embedd
     result_ids = [r["id"] for r in results]
     assert "2026-05-20-seed-active" in result_ids  # seed appears
     assert "2026-05-20-neighbor-arc" not in result_ids  # archived neighbor excluded
+
+
+def test_connect_creates_accesses_table(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(accesses)").fetchall()]
+    assert set(cols) == {"id", "note_id", "ts", "source", "weight"}
+
+
+def test_connect_creates_accesses_index(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    indexes = [r[1] for r in conn.execute("PRAGMA index_list(accesses)").fetchall()]
+    assert "idx_accesses_note_ts" in indexes
+
+
+def test_connect_idempotent_on_existing_accesses_table(fake_brainiac):
+    """Running connect() twice on the same DB must not raise."""
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    db_path = index_db_path(fake_brainiac)
+    conn1 = connect(db_path)
+    conn1.close()
+    conn2 = connect(db_path)  # must not raise
+    cols = [r[1] for r in conn2.execute("PRAGMA table_info(accesses)").fetchall()]
+    assert "note_id" in cols
+
+
+def test_accesses_source_check_constraint(fake_brainiac):
+    import sqlite3
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO accesses (note_id, ts, source, weight) VALUES (?, ?, ?, ?)",
+            ("2026-05-20-x", "2026-05-20T10:00:00+00:00", "bogus_source", 1.0),
+        )

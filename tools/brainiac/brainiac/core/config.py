@@ -10,6 +10,10 @@ from pathlib import Path
 class Config:
     working_memory_limit: int = 9
     classifier_threshold: float = 0.3
+    # ACT-R activation (Phase 5)
+    actr_decay: float = 0.5
+    actr_recall_hit_weight: float = 0.3
+    actr_link_in_weight: float = 0.5
 
 
 def load_config(root: Path) -> Config:
