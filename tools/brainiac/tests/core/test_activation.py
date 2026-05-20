@@ -86,3 +86,200 @@ def test_actr_activation_recent_frequency_beats_single_recent():
     )
     a_single = actr_activation([(NOW - timedelta(hours=1), 1.0)], NOW)
     assert a_many > a_single
+
+
+# --- I/O: record_access ---
+
+def test_record_access_inserts_row_with_default_weight(fake_brainiac):
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-a", "get", now=NOW)
+    row = conn.execute(
+        "SELECT note_id, source, weight FROM accesses WHERE note_id = ?",
+        ("2026-05-20-a",),
+    ).fetchone()
+    assert row[0] == "2026-05-20-a"
+    assert row[1] == "get"
+    assert row[2] == 1.0
+
+
+def test_record_access_respects_explicit_weight(fake_brainiac):
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-b", "recall_hit", now=NOW, weight=0.75)
+    row = conn.execute(
+        "SELECT weight FROM accesses WHERE note_id = ?", ("2026-05-20-b",)
+    ).fetchone()
+    assert row[0] == 0.75
+
+
+def test_record_access_uses_config_weight_for_recall_hit(fake_brainiac):
+    from brainiac.core.activation import record_access
+    from brainiac.core.config import Config
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    config = Config(actr_recall_hit_weight=0.42)
+    record_access(conn, "2026-05-20-c", "recall_hit", now=NOW, config=config)
+    row = conn.execute(
+        "SELECT weight FROM accesses WHERE note_id = ?", ("2026-05-20-c",)
+    ).fetchone()
+    assert row[0] == 0.42
+
+
+def test_record_access_uses_config_weight_for_link_in(fake_brainiac):
+    from brainiac.core.activation import record_access
+    from brainiac.core.config import Config
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    config = Config(actr_link_in_weight=0.65)
+    record_access(conn, "2026-05-20-d", "link_in", now=NOW, config=config)
+    row = conn.execute(
+        "SELECT weight FROM accesses WHERE note_id = ?", ("2026-05-20-d",)
+    ).fetchone()
+    assert row[0] == 0.65
+
+
+def test_record_access_rejects_invalid_source(fake_brainiac):
+    import sqlite3
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(sqlite3.IntegrityError):
+        record_access(conn, "2026-05-20-e", "bogus", now=NOW)
+
+
+# --- I/O: activation ---
+
+def test_activation_zero_events_returns_neg_infinity(fake_brainiac):
+    from brainiac.core.activation import activation
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    assert activation(conn, "2026-05-20-never", now=NOW) == float("-inf")
+
+
+def test_activation_reads_full_history(fake_brainiac):
+    from brainiac.core.activation import activation, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    for h in [1, 2, 3]:
+        record_access(conn, "2026-05-20-hist", "get", now=NOW - timedelta(hours=h))
+    a = activation(conn, "2026-05-20-hist", now=NOW)
+    expected = math.log(1.0 ** -0.5 + 2.0 ** -0.5 + 3.0 ** -0.5)
+    assert a == pytest.approx(expected, abs=1e-6)
+
+
+def test_activation_uses_config_decay(fake_brainiac):
+    from brainiac.core.activation import activation, record_access
+    from brainiac.core.config import Config
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-d2", "get", now=NOW - timedelta(hours=10))
+    a_d03 = activation(conn, "2026-05-20-d2", now=NOW, config=Config(actr_decay=0.3))
+    a_d07 = activation(conn, "2026-05-20-d2", now=NOW, config=Config(actr_decay=0.7))
+    assert a_d03 > a_d07
+
+
+def test_activation_now_injectable_for_determinism(fake_brainiac):
+    from brainiac.core.activation import activation, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-det", "get", now=NOW - timedelta(hours=1))
+    a1 = activation(conn, "2026-05-20-det", now=NOW)
+    a2 = activation(conn, "2026-05-20-det", now=NOW)
+    assert a1 == a2  # deterministic when now is fixed
+
+
+# --- I/O: activation_batch ---
+
+def test_activation_batch_single_query_results_match_individual_calls(fake_brainiac):
+    from brainiac.core.activation import activation, activation_batch, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    for note_id, hours in [("2026-05-20-a", [1, 5]), ("2026-05-20-b", [2]), ("2026-05-20-c", [10, 20, 30])]:
+        for h in hours:
+            record_access(conn, note_id, "get", now=NOW - timedelta(hours=h))
+
+    batch = activation_batch(conn, ["2026-05-20-a", "2026-05-20-b", "2026-05-20-c"], now=NOW)
+    for nid in ["2026-05-20-a", "2026-05-20-b", "2026-05-20-c"]:
+        assert batch[nid] == pytest.approx(activation(conn, nid, now=NOW), abs=1e-9)
+
+
+def test_activation_batch_handles_notes_without_events(fake_brainiac):
+    from brainiac.core.activation import activation_batch
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    batch = activation_batch(conn, ["2026-05-20-no-events"], now=NOW)
+    assert batch["2026-05-20-no-events"] == float("-inf")
+
+
+def test_activation_batch_empty_input_returns_empty_dict(fake_brainiac):
+    from brainiac.core.activation import activation_batch
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    assert activation_batch(conn, [], now=NOW) == {}
+
+
+# --- I/O: access_history ---
+
+def test_access_history_ordered_by_ts_desc(fake_brainiac):
+    from brainiac.core.activation import access_history, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    for h in [5, 1, 3]:
+        record_access(conn, "2026-05-20-h", "get", now=NOW - timedelta(hours=h))
+    hist = access_history(conn, "2026-05-20-h")
+    ts_values = [h["ts"] for h in hist]
+    assert ts_values == sorted(ts_values, reverse=True)  # DESC
+
+
+def test_access_history_respects_limit(fake_brainiac):
+    from brainiac.core.activation import access_history, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    for h in range(20):
+        record_access(conn, "2026-05-20-many", "get", now=NOW - timedelta(hours=h))
+    hist = access_history(conn, "2026-05-20-many", limit=5)
+    assert len(hist) == 5
+
+
+def test_access_history_returns_required_fields(fake_brainiac):
+    from brainiac.core.activation import access_history, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-f", "review", now=NOW)
+    hist = access_history(conn, "2026-05-20-f")
+    assert len(hist) == 1
+    assert set(hist[0].keys()) >= {"ts", "source", "weight"}
+    assert hist[0]["source"] == "review"

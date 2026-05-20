@@ -88,8 +88,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
             note_id TEXT NOT NULL,
             ts TEXT NOT NULL,
             source TEXT NOT NULL CHECK(source IN ('get', 'review', 'recall_hit', 'link_in')),
-            weight REAL NOT NULL DEFAULT 1.0,
-            FOREIGN KEY (note_id) REFERENCES notes(id)
+            weight REAL NOT NULL DEFAULT 1.0
         );
         CREATE INDEX IF NOT EXISTS idx_accesses_note_ts ON accesses(note_id, ts);
     """)
