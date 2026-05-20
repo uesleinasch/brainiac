@@ -177,7 +177,6 @@ def search_vec(
     k: int = 5,
 ) -> list[dict]:
     """Top-k semantic search via cosine distance over notes_vec."""
-    import sqlite_vec
     qvec = embeddings.embed_query(query)
     payload = sqlite_vec.serialize_float32(qvec.tolist())
     rows = conn.execute(
