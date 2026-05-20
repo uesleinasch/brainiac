@@ -3,3 +3,20 @@
 !CLAUDE.md
 !/docs/
 !/.claude/
+
+# Python build/test artifacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Brainiac runtime cache (reconstructible from .md via `brainiac reindex`)
+memoryTransfer/index.sqlite
+memoryTransfer/index.sqlite-shm
+memoryTransfer/index.sqlite-wal

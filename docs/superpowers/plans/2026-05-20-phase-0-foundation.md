@@ -125,25 +125,36 @@ __version__ = "0.1.0"
 
 Ambos arquivos vazios.
 
-- [ ] **Step 5: Instalar em modo editable**
+- [ ] **Step 5: Criar venv local em `tools/brainiac/.venv`**
 
 Run:
 ```bash
-cd tools/brainiac && pip install -e ".[dev]"
+cd tools/brainiac && python3 -m venv .venv
 ```
 
-Expected: instalação completa sem erros; comando `brainiac` ainda não funciona (não há `main` ainda) mas o pacote está importável.
+Expected: pasta `.venv/` criada. Já está no `.gitignore`.
 
-- [ ] **Step 6: Verificar import**
+- [ ] **Step 6: Instalar em modo editable dentro do venv**
 
-Run: `python -c "import brainiac; print(brainiac.__version__)"`
+Run:
+```bash
+cd tools/brainiac && .venv/bin/pip install -e ".[dev]"
+```
+
+Expected: instalação completa sem erros; pacote `brainiac` instalado dentro do venv.
+
+- [ ] **Step 7: Verificar import**
+
+Run: `cd tools/brainiac && .venv/bin/python -c "import brainiac; print(brainiac.__version__)"`
 Expected: `0.1.0`
 
-- [ ] **Step 7: Commit**
+**Nota para os steps seguintes**: todos os comandos `pytest` e `brainiac` devem ser executados via venv. Use `.venv/bin/pytest` e `.venv/bin/brainiac`, ou ative o venv com `source .venv/bin/activate` no início da sessão.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add tools/brainiac/
-git commit -m "feat(phase-0): project scaffolding with pyproject + empty package"
+git commit -m "feat(phase-0): project scaffolding with pyproject + venv"
 ```
 
 ---
