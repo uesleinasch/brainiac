@@ -500,11 +500,16 @@ Atualização no SKILL.md: quando uma nota retornada pelo `recall` tem `activati
 
 ### 7.3 Smoke E2E (DoD)
 
-**`tests/test_smoke_e2e.py`** (3 novos):
-- `test_spacing_effect_demonstrable`:
-  - Nota A: 3 acessos hoje em intervalos de 1h
-  - Nota B: 3 acessos espaçados (hoje, ontem, anteontem)
-  - Assert: `activation(B) > activation(A)` mesmo com mesmo `access_count`
+**`tests/test_smoke_e2e.py`** (4 novos):
+- `test_activation_distinguishes_recent_vs_ancient`:
+  - Nota A: 3 acessos nos últimos 3 dias (recente)
+  - Nota B: 3 acessos há 30+ dias (antigo)
+  - Mesmo `access_count`. Assert: `activation(A) > activation(B)`
+
+- `test_activation_grows_with_recent_frequency`:
+  - Nota A: 5 acessos no último dia
+  - Nota B: 1 acesso no último dia
+  - Assert: `activation(A) > activation(B)`
 
 - `test_recall_ranks_by_combined_activation_and_semantic`:
   - 2 notas igualmente similares à query (semantic score equivalente)
@@ -529,7 +534,8 @@ Atualização no SKILL.md: quando uma nota retornada pelo `recall` tem `activati
 
 Phase 5 está pronta quando:
 
-- [ ] **Spacing effect demonstrável**: teste smoke valida que A(t) é maior para acessos espaçados que para acessos agrupados (mesmo `access_count`)
+- [ ] **Activation captura recência** (que `access_count` não captura): para mesmo `access_count`, nota com acessos recentes tem A(t) maior que nota com acessos antigos
+- [ ] **Activation captura frequência recente**: 5 acessos recentes têm A(t) maior que 1 acesso recente
 - [ ] **Recall ranking responde a activation**: notas mais ativadas sobem no top-K mesmo com semantic score igual
 - [ ] **Auditoria por nota**: `brainiac inspect <id>` mostra os 3 eixos + últimos 10 events com source/weight
 - [ ] **4 sources gravadas**: `get` (de `get_note`), `review` (de `grade_review`), `recall_hit` (de `recall` top-K final), `link_in` (de `add_link`) — confirmado via `accesses` table
@@ -538,6 +544,8 @@ Phase 5 está pronta quando:
 - [ ] **Cobertura `activation.py` ≥ 95%**
 - [ ] **Suite completa verde** (atualmente 204; espera-se ~225 após Phase 5)
 - [ ] **Sem regressões** nos testes existentes das Phases 0-4
+
+**Nota sobre "spacing effect"**: a fórmula ACT-R `A(t) = ln(Σ tᵢ⁻ᵈ)` privilegia recência — qualquer acesso novo aumenta a ativação fortemente. O *spacing effect* da literatura cognitiva (revisões espaçadas produzem retenção mais duradoura) emerge ao integrar a fórmula ao longo do tempo combinada com Ebbinghaus, não em comparações de A(t) em um único instante. Por isso a DoD foca no que a fórmula *realmente entrega* nesse momento: distinção entre recente e antigo, e frequência recente.
 
 ## 9. Out of scope (explícito)
 
