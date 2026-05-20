@@ -5,7 +5,7 @@ description: Busca no brainiac por uma query e sintetiza uma resposta contextual
 
 # Brainiac Recall
 
-Orquestra busca + leitura das notas mais relevantes via MCP tools `recall` + `get_note`.
+Orquestra busca semântica + expansão no grafo + leitura das notas mais relevantes via MCP tools `recall` + `get_note`.
 
 ## Quando usar
 
@@ -15,20 +15,29 @@ Orquestra busca + leitura das notas mais relevantes via MCP tools `recall` + `ge
 
 ## Passos
 
-1. **Chamar `recall(query, k=5)`** com a query em pt-BR (FTS5 funciona com pt-BR direto). Receba lista de notas com `id`, `title`, `snippet`, `path`.
+1. **Chamar `recall(query, k=5)`** com a query em pt-BR. Receba lista de notas com `id`, `title`, `path`, `score`, `origin`.
 
-2. **Avaliar os snippets**: se algum parece claramente relevante, leia integralmente via `get_note(note_id)`. Isso também incrementa `access_count` (sinal de relevância pra fase 2).
+2. **Interpretar `origin`**:
+   - `semantic` — a nota veio diretamente do top-k por similaridade semântica
+   - `explicit` — chegou pela expansão via link declarado pelo usuário
+   - `implicit` — chegou pela expansão via similaridade ≥ 0.75 com alguma seed
+   - `both` — apareceu por mais de uma rota (sinal forte de relevância)
+   - `fts` — modelo de embeddings indisponível; fallback BM25 (sem badge associativo)
 
-3. **Sintetizar resposta**:
-   - Use o conhecimento da(s) nota(s) como contexto autoritativo
+3. **Priorizar** notas com `origin ∈ {semantic, both}`; tratar `explicit`/`implicit` como contexto adjacente útil.
+
+4. **Ler integralmente** via `get_note(note_id)` apenas as notas que parecem realmente relevantes ao snippet/título. `get_note` incrementa `access_count`.
+
+5. **Sintetizar resposta**:
    - Cite cada nota usada por `id` (ex: "conforme anotado em `2026-05-20-bm25-ranking`...")
-   - Se houver gaps na informação, diga claramente — não invente
+   - Mencione a origem quando relevante ("essa nota apareceu por similaridade implícita com X")
+   - Se houver gaps, diga claramente — não invente
 
-4. **Sugerir nota nova** se a resposta levou a um insight que vale a pena persistir (handoff implícito pra `brainiac-capture`).
+6. **Sugerir nota nova** se a resposta levou a um insight que vale persistir (handoff implícito para `brainiac-capture`).
 
 ## Quando não usar
 
-- Pergunta sobre algo claramente fora do escopo das notas do usuário (ex: "qual a capital da França" — não invocar)
+- Pergunta sobre algo fora do escopo das notas do usuário ("qual a capital da França")
 - Conversa puramente operacional (rodar comando, debugar erro local)
 
 ## Exemplo
@@ -36,6 +45,6 @@ Orquestra busca + leitura das notas mais relevantes via MCP tools `recall` + `ge
 Usuário: "lembra como funciona aquele algoritmo de ranking que vimos?"
 
 Você:
-1. `recall("algoritmo de ranking", k=5)` → retorna `[{id: "2026-05-20-bm25-ranking", snippet: "função de ranking probabilística..."}]`
-2. `get_note("2026-05-20-bm25-ranking")` → corpo completo
-3. Resposta: "Você anotou sobre BM25 em `2026-05-20-bm25-ranking`. É uma função de ranking probabilística que considera frequência do termo, tamanho do doc e IDF. Foi mencionada como default scoring do FTS5 do SQLite. Quer expandir algum ponto?"
+1. `recall("algoritmo de ranking", k=5)` → `[{id: "2026-05-20-bm25-ranking", origin: "semantic", score: 0.62}, {id: "2026-05-20-tf-idf", origin: "implicit", score: 0.21}]`
+2. `get_note("2026-05-20-bm25-ranking")` — leitura integral
+3. Resposta: "Você anotou BM25 em `2026-05-20-bm25-ranking` (match semântico direto). A nota `2026-05-20-tf-idf` apareceu por similaridade implícita — pode ser contexto útil. BM25 é função de ranking probabilística que considera TF, comprimento do doc e IDF; é o default scoring do FTS5 do SQLite."
