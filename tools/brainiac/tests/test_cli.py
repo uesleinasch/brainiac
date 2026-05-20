@@ -43,7 +43,7 @@ class TestStatsCommand:
         assert "1" in result.output  # cada tipo aparece com count 1
 
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 
 class TestDecayCommand:
@@ -125,3 +125,54 @@ class TestConsolidateCommand:
         assert result.exit_code == 0
         assert "Promoted 1" in result.output
         assert (fake_brainiac / "semanticMemory" / "2026-05-18-auto.md").exists()
+
+
+class TestReviewCommand:
+    def test_review_empty_queue(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        result = CliRunner().invoke(main, ["review"])
+        assert result.exit_code == 0
+        assert "queue is empty" in result.output.lower() or "no reviews" in result.output.lower()
+
+    def test_review_grades_single_note_via_input(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.index import connect, index_note
+        from brainiac.core.note import write_note
+        from brainiac.core.paths import index_db_path, note_path
+        from brainiac.core.models import SM2
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-19-due-review", "semantic")
+        fm.sm2 = SM2(ease=2.5, interval=1, reps=0, next_review=date(2026, 5, 19))
+        p = note_path(fake_brainiac, "2026-05-19-due-review", "semantic")
+        write_note(p, fm, "# due\n\nbody")
+        conn = connect(index_db_path(fake_brainiac))
+        index_note(conn, fm, "# due\n\nbody", str(p.relative_to(fake_brainiac)))
+
+        # grade=5 then quit (q)
+        result = CliRunner().invoke(main, ["review"], input="5\n")
+        assert result.exit_code == 0
+        assert "2026-05-19-due-review" in result.output
+        assert "Reviewed" in result.output or "reviewed" in result.output
+
+    def test_review_skip_via_s(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.index import connect, index_note
+        from brainiac.core.note import parse_note, write_note
+        from brainiac.core.paths import index_db_path, note_path
+        from brainiac.core.models import SM2
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-19-skip", "semantic")
+        fm.sm2 = SM2(ease=2.5, interval=1, reps=0, next_review=date(2026, 5, 19))
+        p = note_path(fake_brainiac, "2026-05-19-skip", "semantic")
+        write_note(p, fm, "# skip\n\nbody")
+        conn = connect(index_db_path(fake_brainiac))
+        index_note(conn, fm, "# skip\n\nbody", str(p.relative_to(fake_brainiac)))
+
+        result = CliRunner().invoke(main, ["review"], input="s\n")
+        assert result.exit_code == 0
+        # state unchanged after skip
+        fm_after, _ = parse_note(p)
+        assert fm_after.sm2.reps == 0
+        assert fm_after.sm2.next_review == date(2026, 5, 19)
