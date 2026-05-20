@@ -54,5 +54,5 @@ def test_load_config_rejects_invalid_types(fake_brainiac):
         'working_memory_limit = "nine"\n',
         encoding="utf-8",
     )
-    with pytest.raises((TypeError, ValueError)):
+    with pytest.raises(TypeError):
         load_config(fake_brainiac)
