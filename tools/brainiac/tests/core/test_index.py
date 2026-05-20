@@ -87,8 +87,9 @@ class TestConnect:
 
 class TestReindexAll:
     def test_empty_brainiac_returns_zero(self, conn, fake_brainiac):
-        n = reindex_all(conn, fake_brainiac)
-        assert n == 0
+        active, archived = reindex_all(conn, fake_brainiac)
+        assert active == 0
+        assert archived == 0
 
     def test_indexes_notes_in_correct_dirs(self, conn, fake_brainiac):
         write_note(
@@ -107,8 +108,8 @@ class TestReindexAll:
             "# C\n",
         )
 
-        n = reindex_all(conn, fake_brainiac)
-        assert n == 3
+        active, _ = reindex_all(conn, fake_brainiac)
+        assert active == 3
 
         ids = {r[0] for r in conn.execute("SELECT id FROM notes").fetchall()}
         assert ids == {"2026-05-20-a", "2026-05-20-b", "2026-05-20-c"}
@@ -125,8 +126,8 @@ class TestReindexAll:
         (fake_brainiac / "docs" / "random.md").write_text("# not a note\n")
         (fake_brainiac / "README.md").write_text("# repo readme\n")
 
-        n = reindex_all(conn, fake_brainiac)
-        assert n == 1
+        active, _ = reindex_all(conn, fake_brainiac)
+        assert active == 1
 
     def test_skips_invalid_frontmatter_without_crashing(self, conn, fake_brainiac, capsys):
         # nota válida
@@ -140,8 +141,8 @@ class TestReindexAll:
             "---\nid: invalid format\n---\n# x\n", encoding="utf-8"
         )
 
-        n = reindex_all(conn, fake_brainiac)
-        assert n == 1  # só a boa contou
+        active, _ = reindex_all(conn, fake_brainiac)
+        assert active == 1  # só a boa contou
         captured = capsys.readouterr()
         assert "broken.md" in captured.out  # log do skip
 
@@ -155,8 +156,8 @@ class TestReindexAll:
 
         # remove o arquivo e roda de novo
         (fake_brainiac / "semanticMemory" / "2026-05-20-a.md").unlink()
-        n = reindex_all(conn, fake_brainiac)
-        assert n == 0
+        active, _ = reindex_all(conn, fake_brainiac)
+        assert active == 0
         rows = conn.execute("SELECT COUNT(*) FROM notes").fetchone()
         assert rows == (0,)
 

@@ -1,11 +1,6 @@
-"""MCP server exposing brainiac Phase 0 tools via stdio.
+"""MCP server exposing brainiac tools via stdio.
 
-Tools (5):
-- add_note: create a note with frontmatter
-- recall: BM25 top-k search
-- get_note: read note (increments access)
-- link: add explicit link src→dst
-- list_recent: last N notes by last_access
+Tools (7): add_note, recall, get_note, link, list_recent, consolidate_check, forget
 """
 
 import asyncio
@@ -83,6 +78,23 @@ def tool_list_recent(limit: int = 10) -> list[dict]:
     return list_recent(conn, limit=limit)
 
 
+def tool_consolidate_check(window_days: int = 7) -> list[dict]:
+    """Return working notes qualified for promotion."""
+    from brainiac.core.consolidate import consolidation_candidates
+    root = find_root()
+    conn = connect(index_db_path(root))
+    return consolidation_candidates(conn, window_days=window_days)
+
+
+def tool_forget(note_id: str) -> dict:
+    """Archive a note immediately (manual forget)."""
+    from brainiac.core.decay import archive_note
+    root = find_root()
+    conn = connect(index_db_path(root))
+    new_path = archive_note(conn, root, note_id)
+    return {"id": note_id, "archived_path": new_path, "action": "archived"}
+
+
 # --- MCP server plumbing ---
 
 server = Server("brainiac")
@@ -151,6 +163,32 @@ async def _list_tools() -> list[Tool]:
                 "properties": {"limit": {"type": "integer", "default": 10}},
             },
         ),
+        Tool(
+            name="consolidate_check",
+            description=(
+                "Lista notas working prontas para promoção (access_count≥3, "
+                "acessadas recentemente, com pelo menos 1 link recebido). "
+                "Retorna candidatos com suggested_type."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "window_days": {"type": "integer", "default": 7},
+                },
+            },
+        ),
+        Tool(
+            name="forget",
+            description=(
+                "Arquiva uma nota agora, removendo-a da memória ativa. "
+                "Reversível: nota vai para memoryTransfer/archive/."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"note_id": {"type": "string"}},
+                "required": ["note_id"],
+            },
+        ),
     ]
 
 
@@ -160,6 +198,8 @@ _DISPATCH = {
     "get_note": tool_get_note,
     "link": tool_link,
     "list_recent": tool_list_recent,
+    "consolidate_check": tool_consolidate_check,
+    "forget": tool_forget,
 }
 
 

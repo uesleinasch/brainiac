@@ -3,7 +3,7 @@ import sqlite3
 
 import sqlite_vec
 
-from brainiac.core.index import connect, index_note, reindex_all, search_vec
+from brainiac.core.index import connect, index_note, recall, reindex_all, search_vec
 from brainiac.core.note import write_note
 from tests.conftest import make_fm
 
@@ -70,8 +70,8 @@ def test_reindex_all_repopulates_notes_vec(fake_brainiac, embedder_stub):
     )
     conn.commit()
 
-    n = reindex_all(conn, fake_brainiac)
-    assert n == 2
+    active, _ = reindex_all(conn, fake_brainiac)
+    assert active == 2
 
     ids = {r[0] for r in conn.execute("SELECT id FROM notes_vec").fetchall()}
     assert ids == {"2026-05-20-a", "2026-05-20-b"}
@@ -92,3 +92,65 @@ def test_search_vec_returns_topk_with_similarity(fake_brainiac, embedder_stub):
         assert -1.0 <= r["score"] <= 1.0
     # ordenação por score desc
     assert results[0]["score"] >= results[1]["score"]
+
+
+def test_new_notes_have_archived_zero(fake_brainiac, embedder_stub):
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    fm = make_fm(note_id="2026-05-20-new")
+    index_note(conn, fm, "# New\n\nbody", "semanticMemory/2026-05-20-new.md")
+    row = conn.execute("SELECT archived FROM notes WHERE id = ?", ("2026-05-20-new",)).fetchone()
+    assert row[0] == 0
+
+
+def test_archived_note_hidden_from_recall_by_default(fake_brainiac, embedder_stub):
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    fm = make_fm(note_id="2026-05-20-arc")
+    index_note(conn, fm, "# Arc\n\nbody archivado", "semanticMemory/2026-05-20-arc.md", archived=True)
+    results = recall(conn, "archivado", k=5)
+    assert all(r["id"] != "2026-05-20-arc" for r in results)
+
+
+def test_archived_note_visible_with_include_archived(fake_brainiac, embedder_stub):
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    fm = make_fm(note_id="2026-05-20-arc2")
+    index_note(conn, fm, "# Arc2\n\narchivado visivel", "semanticMemory/2026-05-20-arc2.md", archived=True)
+    results = recall(conn, "archivado visivel", k=5, include_archived=True)
+    assert any(r["id"] == "2026-05-20-arc2" for r in results)
+
+
+def test_reindex_all_indexes_archived_notes_from_archive_dir(fake_brainiac, embedder_stub):
+    from brainiac.core.note import write_note
+    archive_dir = fake_brainiac / "memoryTransfer" / "archive" / "2026"
+    archive_dir.mkdir(parents=True)
+    fm = make_fm(note_id="2026-05-20-old-arc")
+    write_note(archive_dir / "2026-05-20-old-arc.md", fm, "# Old Arc\n\nconteudo")
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    reindex_all(conn, fake_brainiac)
+    row = conn.execute("SELECT archived FROM notes WHERE id = ?", ("2026-05-20-old-arc",)).fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+def test_recall_does_not_return_archived_neighbor_via_1hop(fake_brainiac, embedder_stub):
+    """Archived note reached via 1-hop expansion must not appear in default recall."""
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+
+    # Active seed note
+    fm_seed = make_fm(note_id="2026-05-20-seed-active")
+    index_note(conn, fm_seed, "# Seed\n\nbody seed content", "semanticMemory/2026-05-20-seed-active.md")
+
+    # Archived neighbor that seed links to
+    fm_arc = make_fm(note_id="2026-05-20-neighbor-arc")
+    index_note(conn, fm_arc, "# Arc Neighbor\n\nbody seed content", "semanticMemory/2026-05-20-neighbor-arc.md", archived=True)
+
+    # Add explicit link from seed → archived neighbor
+    conn.execute(
+        "INSERT OR IGNORE INTO links(src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+        ("2026-05-20-seed-active", "2026-05-20-neighbor-arc"),
+    )
+    conn.commit()
+
+    results = recall(conn, "seed content", k=10)
+    result_ids = [r["id"] for r in results]
+    assert "2026-05-20-seed-active" in result_ids  # seed appears
+    assert "2026-05-20-neighbor-arc" not in result_ids  # archived neighbor excluded

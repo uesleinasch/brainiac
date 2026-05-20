@@ -12,6 +12,7 @@ from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
 _MEMORY_DIRS = ("shortMemory", "longMemory", "semanticMemory")
+_ARCHIVE_SUBDIR = ("memoryTransfer", "archive")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS notes (
@@ -24,7 +25,8 @@ CREATE TABLE IF NOT EXISTS notes (
     strength REAL NOT NULL DEFAULT 1.0,
     tags TEXT,
     sm2_json TEXT,
-    body_hash TEXT NOT NULL
+    body_hash TEXT NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -72,6 +74,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
     conn.executescript(_SCHEMA)
+    # idempotent migration for existing DBs created before Phase 2
+    try:
+        conn.execute("ALTER TABLE notes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     return conn
 
@@ -100,6 +108,8 @@ def index_note(
     fm: NoteFrontmatter,
     body: str,
     rel_path: str,
+    *,
+    archived: bool = False,
 ) -> None:
     """Insert or replace a note in all index tables. Syncs explicit links."""
     title = _extract_title(body)
@@ -111,8 +121,8 @@ def index_note(
         """
         INSERT OR REPLACE INTO notes
         (id, path, type, created, last_access, access_count, strength,
-         tags, sm2_json, body_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         tags, sm2_json, body_hash, archived)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             fm.id, rel_path, fm.type,
@@ -121,17 +131,16 @@ def index_note(
             json.dumps(fm.tags),
             fm.sm2.model_dump_json() if fm.sm2 else None,
             bh,
+            1 if archived else 0,
         ),
     )
 
-    # FTS5: delete + insert (FTS5 não suporta INSERT OR REPLACE com UNINDEXED)
     conn.execute("DELETE FROM notes_fts WHERE id = ?", (fm.id,))
     conn.execute(
         "INSERT INTO notes_fts (id, title, body) VALUES (?, ?, ?)",
         (fm.id, title, body),
     )
 
-    # Sync explicit links: replace todos de src=fm.id, kind=explicit
     conn.execute(
         "DELETE FROM links WHERE src = ? AND kind = 'explicit'", (fm.id,)
     )
@@ -152,20 +161,20 @@ def search_fts(
     conn: sqlite3.Connection,
     query: str,
     k: int = 5,
+    include_archived: bool = False,
 ) -> list[dict]:
     """Top-k search via FTS5 + BM25 ranking."""
-    rows = conn.execute(
-        """
+    sql = """
         SELECT n.id, n.path, n.type, fts.title,
                snippet(notes_fts, 2, '[', ']', '...', 32) as snippet
         FROM notes_fts fts
         JOIN notes n ON n.id = fts.id
         WHERE notes_fts MATCH ?
-        ORDER BY bm25(notes_fts)
-        LIMIT ?
-        """,
-        (query, k),
-    ).fetchall()
+    """
+    if not include_archived:
+        sql += " AND n.archived = 0"
+    sql += " ORDER BY bm25(notes_fts) LIMIT ?"
+    rows = conn.execute(sql, (query, k)).fetchall()
     return [
         {"id": r[0], "path": r[1], "type": r[2], "title": r[3], "snippet": r[4]}
         for r in rows
@@ -176,21 +185,21 @@ def search_vec(
     conn: sqlite3.Connection,
     query: str,
     k: int = 5,
+    include_archived: bool = False,
 ) -> list[dict]:
     """Top-k semantic search via cosine distance over notes_vec."""
     qvec = embeddings.embed_query(query)
     payload = sqlite_vec.serialize_float32(qvec.tolist())
-    rows = conn.execute(
-        """
+    sql = """
         SELECT n.id, n.path, n.type,
                vec_distance_cosine(v.embedding, ?) as dist,
                (SELECT title FROM notes_fts f WHERE f.id = n.id) as title
         FROM notes_vec v JOIN notes n ON n.id = v.id
-        ORDER BY dist ASC
-        LIMIT ?
-        """,
-        (payload, k),
-    ).fetchall()
+    """
+    if not include_archived:
+        sql += " WHERE n.archived = 0"
+    sql += " ORDER BY dist ASC LIMIT ?"
+    rows = conn.execute(sql, (payload, k)).fetchall()
     return [
         {
             "id": r[0], "path": r[1], "type": r[2],
@@ -201,10 +210,10 @@ def search_vec(
     ]
 
 
-def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
-    """Wipe and rebuild index from .md files in memory dirs. Returns count.
+def reindex_all(conn: sqlite3.Connection, root: Path) -> tuple[int, int]:
+    """Wipe and rebuild index from .md files. Returns (active_count, archived_count).
 
-    Idempotent: result depends only on filesystem state, not previous index state.
+    Idempotent: scans both active memory dirs and memoryTransfer/archive/.
     """
     conn.execute("DELETE FROM notes")
     conn.execute("DELETE FROM notes_fts")
@@ -223,8 +232,20 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
         except Exception as exc:
             print(f"skipping {rel}: {exc}")
 
+    archived_count = 0
+    archive_root = root / _ARCHIVE_SUBDIR[0] / _ARCHIVE_SUBDIR[1]
+    if archive_root.exists():
+        for md_file in archive_root.rglob("*.md"):
+            rel = md_file.relative_to(root)
+            try:
+                fm, body = parse_note(md_file)
+                index_note(conn, fm, body, str(rel), archived=True)
+                archived_count += 1
+            except Exception as exc:
+                print(f"skipping archive {rel}: {exc}")
+
     conn.commit()
-    return count
+    return count, archived_count
 
 
 def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
@@ -297,9 +318,14 @@ def add_link(
         index_note(conn, fm, body, rel_path)
 
 
-def _fallback_fts(conn: sqlite3.Connection, query: str, k: int) -> list[dict]:
+def _fallback_fts(
+    conn: sqlite3.Connection,
+    query: str,
+    k: int,
+    include_archived: bool = False,
+) -> list[dict]:
     out = []
-    for r in search_fts(conn, query, k=k):
+    for r in search_fts(conn, query, k=k, include_archived=include_archived):
         out.append({
             "id": r["id"], "path": r["path"], "type": r["type"],
             "title": r["title"], "snippet": r.get("snippet", ""),
@@ -312,21 +338,23 @@ def recall(
     conn: sqlite3.Connection,
     query: str,
     k: int = 5,
+    include_archived: bool = False,
 ) -> list[dict]:
     """Recall associativo: semantic top-k + 1-hop expansion + badges.
 
     Falls back to FTS5 if embeddings model unavailable.
+    Archived notes excluded by default; pass include_archived=True to include.
     """
     if not embeddings.model_available():
         try:
             embeddings.embed_query("warmup")
         except Exception:
-            return _fallback_fts(conn, query, k)
+            return _fallback_fts(conn, query, k, include_archived=include_archived)
 
     try:
-        seeds = search_vec(conn, query, k=k)
+        seeds = search_vec(conn, query, k=k, include_archived=include_archived)
     except Exception:
-        return _fallback_fts(conn, query, k)
+        return _fallback_fts(conn, query, k, include_archived=include_archived)
 
     scored: dict[str, dict] = {}
     for s in seeds:
@@ -349,9 +377,11 @@ def recall(
                 scored[dst]["score"] = max(scored[dst]["score"], neighbor_score)
             else:
                 row = conn.execute(
-                    "SELECT path, type FROM notes WHERE id = ?", (dst,)
+                    "SELECT path, type, archived FROM notes WHERE id = ?", (dst,)
                 ).fetchone()
                 if row is None:
+                    continue
+                if not include_archived and row[2] == 1:
                     continue
                 title_row = conn.execute(
                     "SELECT title FROM notes_fts WHERE id = ?", (dst,)
