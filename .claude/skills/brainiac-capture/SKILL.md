@@ -16,10 +16,17 @@ Orquestra a criação de uma nota bem-formada via MCP tool `add_note`.
 ## Passos
 
 1. **Determinar tipo** da nota:
-   - `episodic` — narrativa pessoal com timestamp/contexto ("hoje eu fiz X", "decidimos Y na reunião")
-   - `semantic` — conceito/fato descontextualizado ("Kubernetes scheduler funciona assim", "BM25 é uma função de ranking")
-   - `working` — ideia ainda crua, a ser refinada/promovida depois (rascunho)
-   Se ambíguo, pergunte ao usuário.
+   - Antes de perguntar, rode o classificador rápido sobre o body + tags hipotéticas.
+     Mentalmente (ou via `brainiac classify` se a nota já está em arquivo) avalie:
+     - 1ª pessoa + verbos no passado ("hoje fui...", "decidimos...") → forte sinal `episodic`
+     - Definição impessoal ("X é uma...", "X consiste em...") → forte sinal `semantic`
+     - Body curto, com `?` no fim, palavras como "ideia", "rascunho", "todo" → forte sinal `working`
+   - **Se o sinal for forte (≥ 0.5 de confiança)**: use o tipo sugerido sem perguntar.
+   - **Se for ambíguo** (sem sinal claro ou dois tipos empatados): pergunte ao usuário.
+   - Tipos possíveis:
+     - `episodic` — narrativa pessoal com timestamp/contexto ("hoje eu fiz X", "decidimos Y na reunião")
+     - `semantic` — conceito/fato descontextualizado ("Kubernetes scheduler funciona assim", "BM25 é uma função de ranking")
+     - `working` — ideia ainda crua, a ser refinada/promovida depois (rascunho)
 
 2. **Gerar `note_id`**: formato `YYYY-MM-DD-slug` onde `slug` é kebab-case ≤ 40 chars, descritivo (não genérico como "note" ou "ideia").
 

@@ -243,3 +243,50 @@ class TestReviewCommand:
         # state unchanged
         fm_after, _ = parse_note(p)
         assert fm_after.sm2.reps == 0
+
+
+class TestClassifyCommand:
+    def test_classify_episodic_note(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.note import write_note
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-20-classify-e", "working")
+        p = fake_brainiac / "shortMemory" / "2026-05-20-classify-e.md"
+        write_note(p, fm, "# log\n\nHoje fui à reunião e decidimos pivotar.")
+
+        result = CliRunner().invoke(main, ["classify", str(p)])
+        assert result.exit_code == 0
+        assert "episodic" in result.output.lower()
+
+    def test_classify_semantic_note(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.note import write_note
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-20-classify-s", "working")
+        p = fake_brainiac / "shortMemory" / "2026-05-20-classify-s.md"
+        write_note(p, fm, "# BM25\n\nBM25 é uma função de ranking probabilística.")
+
+        result = CliRunner().invoke(main, ["classify", str(p)])
+        assert result.exit_code == 0
+        assert "semantic" in result.output.lower()
+
+    def test_classify_ambiguous_note_reports_unknown(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.note import write_note
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-20-classify-amb", "working")
+        p = fake_brainiac / "shortMemory" / "2026-05-20-classify-amb.md"
+        write_note(p, fm, "# x\n\nFrase neutra sem marcadores claros.")
+
+        result = CliRunner().invoke(main, ["classify", str(p)])
+        assert result.exit_code == 0
+        assert "ambiguous" in result.output.lower() or "unknown" in result.output.lower()
+
+    def test_classify_nonexistent_file_errors(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+
+        result = CliRunner().invoke(main, ["classify", str(fake_brainiac / "missing.md")])
+        assert result.exit_code != 0

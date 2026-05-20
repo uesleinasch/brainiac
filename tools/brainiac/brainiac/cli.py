@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import click
 
 from brainiac.core.index import connect, reindex_all
@@ -148,6 +150,24 @@ def review(limit: int) -> None:
 
     click.echo("")
     click.echo(f"Session complete. Reviewed: {reviewed}, skipped: {skipped}")
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def classify(path: Path) -> None:
+    """Suggest a type (episodic/semantic/working) for an existing .md note."""
+    from brainiac.core.classifier import classify as classify_body
+    from brainiac.core.note import parse_note
+
+    fm, body = parse_note(path)
+    suggested, confidence = classify_body(body, tags=fm.tags)
+
+    click.echo(f"file: {path}")
+    click.echo(f"current type: {fm.type}")
+    if suggested is None:
+        click.echo("suggested: ambiguous (consider asking the user or refining the body)")
+    else:
+        click.echo(f"suggested: {suggested} (confidence: {confidence:.2f})")
 
 
 @main.command()

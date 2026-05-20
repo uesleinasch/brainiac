@@ -375,3 +375,71 @@ def test_review_bumps_access_count_for_consolidation(fake_brainiac, monkeypatch)
         "SELECT access_count FROM notes WHERE id = ?", ("2026-05-20-acc-dod",)
     ).fetchone()
     assert row[0] == 3  # bumped
+
+
+# --- DoD Phase 4 ---
+
+
+def test_short_memory_never_exceeds_limit(fake_brainiac, monkeypatch):
+    """DoD: shortMemory/ nunca excede limite; tentativa retorna erro útil."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    (fake_brainiac / "brainiac.toml").write_text(
+        "working_memory_limit = 2\n", encoding="utf-8"
+    )
+    from brainiac.mcp_server import tool_add_note
+
+    tool_add_note(note_id="2026-05-20-w-1", note_type="working", title="1", body="# 1")
+    tool_add_note(note_id="2026-05-20-w-2", note_type="working", title="2", body="# 2")
+    result = tool_add_note(note_id="2026-05-20-w-3", note_type="working", title="3", body="# 3")
+
+    assert "error" in result
+    assert result["count"] == 2
+    assert result["limit"] == 2
+    assert isinstance(result["suggestion"], list)
+
+    # Filesystem must reflect refusal — only 2 .md files
+    short_dir = fake_brainiac / "shortMemory"
+    actual = sorted(p.name for p in short_dir.glob("2026-05-20-w-*.md"))
+    assert actual == ["2026-05-20-w-1.md", "2026-05-20-w-2.md"]
+
+
+def test_capture_classifier_unambiguous_returns_type(fake_brainiac, monkeypatch):
+    """DoD: capture (via classifier) reconhece tipo sem perguntar quando confiante."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.classifier import classify
+
+    # episodic — confident
+    typ, conf = classify("Hoje decidimos pivotar para B2B.", tags=["reuniao"])
+    assert typ == "episodic"
+    assert conf > 0.3
+
+    # semantic — confident
+    typ, conf = classify("BM25 é uma função de ranking probabilística.", tags=["conceito"])
+    assert typ == "semantic"
+    assert conf > 0.3
+
+
+def test_capture_classifier_ambiguous_returns_none(fake_brainiac, monkeypatch):
+    """DoD: capture pergunta tipo apenas quando ambíguo (classifier retorna None)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.classifier import classify
+
+    typ, _ = classify("Frase neutra sem marcadores fortes.")
+    assert typ is None  # skill deve perguntar ao usuário
+
+
+def test_brainiac_classify_cli_on_legacy_note(fake_brainiac, monkeypatch):
+    """DoD: brainiac classify <path> sugere tipo para nota pré-existente/legada."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from click.testing import CliRunner
+    from brainiac.cli import main
+    from brainiac.core.note import write_note
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-legacy", "working")  # mistyped as working
+    p = fake_brainiac / "shortMemory" / "2026-05-20-legacy.md"
+    write_note(p, fm, "# K8s\n\nKubernetes é um orquestrador de containers.")
+
+    result = CliRunner().invoke(main, ["classify", str(p)])
+    assert result.exit_code == 0
+    assert "semantic" in result.output.lower()
