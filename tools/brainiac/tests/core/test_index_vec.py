@@ -199,3 +199,42 @@ def test_accesses_source_check_constraint(fake_brainiac):
             "INSERT INTO accesses (note_id, ts, source, weight) VALUES (?, ?, ?, ?)",
             ("2026-05-20-x", "2026-05-20T10:00:00+00:00", "bogus_source", 1.0),
         )
+
+
+def test_get_note_records_access_source_get(fake_brainiac, embedder_stub):
+    from brainiac.core.index import connect, index_note, get_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-gn", "semantic")
+    p = note_path(fake_brainiac, "2026-05-20-gn", "semantic")
+    write_note(p, fm, "# x\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    get_note(conn, fake_brainiac, "2026-05-20-gn")
+    row = conn.execute(
+        "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-gn",)
+    ).fetchone()
+    assert row[0] == "get"
+
+
+def test_add_link_records_access_source_link_in_on_destination(fake_brainiac, embedder_stub):
+    from brainiac.core.index import add_link, connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    for nid in ["2026-05-20-src", "2026-05-20-dst"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, f"# {nid}\n\nbody")
+        index_note(conn, fm, f"# {nid}\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    add_link(conn, fake_brainiac, "2026-05-20-src", "2026-05-20-dst")
+    row = conn.execute(
+        "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-dst",)
+    ).fetchone()
+    assert row[0] == "link_in"

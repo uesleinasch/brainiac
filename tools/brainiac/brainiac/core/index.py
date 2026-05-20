@@ -278,6 +278,9 @@ def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
     write_note(full, fm, body)
     index_note(conn, fm, body, rel_path)
 
+    from brainiac.core.activation import record_access
+    record_access(conn, fm.id, "get")
+
     return {
         "id": fm.id,
         "type": fm.type,
@@ -328,6 +331,9 @@ def add_link(
         fm.links.append(dst)
         write_note(full, fm, body)
         index_note(conn, fm, body, rel_path)
+
+        from brainiac.core.activation import record_access
+        record_access(conn, dst, "link_in")
 
 
 def _fallback_fts(

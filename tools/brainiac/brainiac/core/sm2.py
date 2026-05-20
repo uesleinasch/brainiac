@@ -190,6 +190,9 @@ def grade_review(
     index_note(conn, fm, body, rel)
     conn.commit()
 
+    from brainiac.core.activation import record_access
+    record_access(conn, note_id, "review")
+
     log_event(
         root,
         note_id,

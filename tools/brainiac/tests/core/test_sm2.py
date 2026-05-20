@@ -371,3 +371,24 @@ def test_start_review_raises_if_already_enrolled(fake_brainiac):
     conn = connect(index_db_path(fake_brainiac))
     with pytest.raises(ValueError):
         start_review(conn, fake_brainiac, "2026-05-20-double-enroll", today=today)
+
+
+def test_grade_review_records_access_source_review(fake_brainiac):
+    from datetime import date
+    from brainiac.core.index import connect
+    from brainiac.core.models import SM2
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.sm2 import grade_review
+
+    today = date(2026, 5, 20)
+    _seed(
+        fake_brainiac,
+        "2026-05-20-rev-acc",
+        sm2=SM2(ease=2.5, interval=1, reps=0, next_review=today),
+    )
+    conn = connect(index_db_path(fake_brainiac))
+    grade_review(conn, fake_brainiac, "2026-05-20-rev-acc", q=4, today=today)
+    row = conn.execute(
+        "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-rev-acc",)
+    ).fetchone()
+    assert row[0] == "review"
