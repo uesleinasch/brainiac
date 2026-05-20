@@ -100,3 +100,150 @@ def test_s0_and_alpha_defaults():
     from brainiac.core.decay import ALPHA, S0_HOURS
     assert S0_HOURS == pytest.approx(24.0)
     assert ALPHA == pytest.approx(0.5)
+
+
+# --- archive_note + run_decay integration tests ---
+
+def _seed_note(
+    fake_brainiac: Path,
+    note_id: str,
+    note_type: str = "semantic",
+    last_access: datetime | None = None,
+    access_count: int = 0,
+) -> None:
+    """Create and index a note in fake_brainiac."""
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    fm = make_fm(note_id=note_id, note_type=note_type,
+                 access_count=access_count, last_access=last_access)
+    p = note_path(fake_brainiac, note_id, note_type)
+    write_note(p, fm, f"# {note_id}\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    rel = str(p.relative_to(fake_brainiac))
+    index_note(conn, fm, f"# {note_id}\n\nbody", rel)
+
+
+def test_archive_note_moves_file_to_archive_dir(fake_brainiac):
+    from brainiac.core.decay import archive_note
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    _seed_note(fake_brainiac, "2026-05-20-arc-move", "semantic")
+    conn = connect(index_db_path(fake_brainiac))
+    archive_note(conn, fake_brainiac, "2026-05-20-arc-move", now=now)
+
+    original = fake_brainiac / "semanticMemory" / "2026-05-20-arc-move.md"
+    archived = fake_brainiac / "memoryTransfer" / "archive" / "2026" / "2026-05-20-arc-move.md"
+    assert not original.exists()
+    assert archived.exists()
+
+
+def test_archive_note_marks_db_archived(fake_brainiac):
+    from brainiac.core.decay import archive_note
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    _seed_note(fake_brainiac, "2026-05-20-arc-db", "semantic")
+    conn = connect(index_db_path(fake_brainiac))
+    archive_note(conn, fake_brainiac, "2026-05-20-arc-db", now=now)
+
+    row = conn.execute(
+        "SELECT archived FROM notes WHERE id = ?", ("2026-05-20-arc-db",)
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+def test_archive_note_logs_event(fake_brainiac):
+    from brainiac.core.decay import archive_note
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    _seed_note(fake_brainiac, "2026-05-20-arc-log", "semantic")
+    conn = connect(index_db_path(fake_brainiac))
+    archive_note(conn, fake_brainiac, "2026-05-20-arc-log", now=now)
+
+    events_file = fake_brainiac / "memoryTransfer" / "logs" / "events.jsonl"
+    entries = [json.loads(l) for l in events_file.read_text().strip().split("\n") if l]
+    assert any(e["note_id"] == "2026-05-20-arc-log" and e["action"] == "archived" for e in entries)
+
+
+def test_archive_note_raises_for_unknown_note(fake_brainiac):
+    from brainiac.core.decay import archive_note
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(KeyError):
+        archive_note(conn, fake_brainiac, "2026-05-20-nonexistent")
+
+
+def test_run_decay_archives_note_with_low_strength(fake_brainiac):
+    from brainiac.core.decay import run_decay
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    old_access = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+
+    _seed_note(fake_brainiac, "2026-03-21-stale", "semantic",
+               last_access=old_access, access_count=0)
+    conn = connect(index_db_path(fake_brainiac))
+    stats = run_decay(conn, fake_brainiac, now=now)
+
+    assert stats["archived"] == 1
+    archived_path = fake_brainiac / "memoryTransfer" / "archive" / "2026" / "2026-03-21-stale.md"
+    assert archived_path.exists()
+
+
+def test_run_decay_preserves_strong_note(fake_brainiac):
+    from brainiac.core.decay import run_decay
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    recent = datetime(2026, 5, 19, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+
+    _seed_note(fake_brainiac, "2026-05-19-fresh", "semantic",
+               last_access=recent, access_count=10)
+    conn = connect(index_db_path(fake_brainiac))
+    stats = run_decay(conn, fake_brainiac, now=now)
+
+    assert stats["archived"] == 0
+    assert (fake_brainiac / "semanticMemory" / "2026-05-19-fresh.md").exists()
+
+
+def test_run_decay_returns_stats_dict(fake_brainiac):
+    from brainiac.core.decay import run_decay
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    _seed_note(fake_brainiac, "2026-05-20-stat", "semantic")
+    conn = connect(index_db_path(fake_brainiac))
+    stats = run_decay(conn, fake_brainiac, now=now)
+
+    assert set(stats.keys()) == {"checked", "updated", "archived"}
+    assert stats["checked"] >= 1
+
+
+def test_run_decay_dry_run_does_not_archive(fake_brainiac):
+    from brainiac.core.decay import run_decay
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    old_access = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    _seed_note(fake_brainiac, "2026-03-21-dry", "semantic",
+               last_access=old_access, access_count=0)
+    conn = connect(index_db_path(fake_brainiac))
+    stats = run_decay(conn, fake_brainiac, now=now, dry_run=True)
+
+    assert stats["archived"] >= 1
+    assert (fake_brainiac / "semanticMemory" / "2026-03-21-dry.md").exists()
