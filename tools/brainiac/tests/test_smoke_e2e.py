@@ -1,6 +1,7 @@
 """End-to-end smoke: exerce o fluxo capture → recall → get → reindex sem MCP plumbing."""
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -443,3 +444,97 @@ def test_brainiac_classify_cli_on_legacy_note(fake_brainiac, monkeypatch):
     result = CliRunner().invoke(main, ["classify", str(p)])
     assert result.exit_code == 0
     assert "semantic" in result.output.lower()
+
+
+# --- DoD Phase 5 ---
+
+
+def test_activation_distinguishes_recent_vs_ancient(fake_brainiac, monkeypatch):
+    """DoD: same access_count, different recency → activation(recent) > activation(ancient)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import timedelta
+    from brainiac.core.activation import activation, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    conn = connect(index_db_path(fake_brainiac))
+
+    # Note A: 3 recent accesses (last 3 days)
+    for d in [1, 2, 3]:
+        record_access(conn, "2026-05-20-recent", "get", now=now - timedelta(days=d))
+    # Note B: 3 ancient accesses (30+ days ago)
+    for d in [30, 40, 50]:
+        record_access(conn, "2026-05-20-ancient", "get", now=now - timedelta(days=d))
+
+    a_recent = activation(conn, "2026-05-20-recent", now=now)
+    a_ancient = activation(conn, "2026-05-20-ancient", now=now)
+    assert a_recent > a_ancient
+
+
+def test_activation_grows_with_recent_frequency(fake_brainiac, monkeypatch):
+    """DoD: more recent accesses → higher activation."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import timedelta
+    from brainiac.core.activation import activation, record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    conn = connect(index_db_path(fake_brainiac))
+
+    for h in [1, 3, 5, 7, 9]:
+        record_access(conn, "2026-05-20-many", "get", now=now - timedelta(hours=h))
+    record_access(conn, "2026-05-20-one", "get", now=now - timedelta(hours=1))
+
+    a_many = activation(conn, "2026-05-20-many", now=now)
+    a_one = activation(conn, "2026-05-20-one", now=now)
+    assert a_many > a_one
+
+
+def test_recall_ranks_by_combined_activation_and_semantic(fake_brainiac, embedder_stub, monkeypatch):
+    """DoD: 2 notas igualmente similares; a mais ativada vem primeiro."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import timedelta
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    conn = connect(index_db_path(fake_brainiac))
+    body = "# x\n\nshared semantic content for ranking test"
+    for nid in ["2026-05-20-quiet", "2026-05-20-active"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, body)
+        index_note(conn, fm, body, str(p.relative_to(fake_brainiac)))
+
+    for h in [1, 2, 3, 4, 5]:
+        record_access(conn, "2026-05-20-active", "get", now=now - timedelta(hours=h))
+
+    hits = recall(conn, "shared semantic content ranking", k=5)
+    ids = [h["id"] for h in hits]
+    assert ids.index("2026-05-20-active") < ids.index("2026-05-20-quiet")
+
+
+def test_inspect_note_shows_audit_trail(fake_brainiac, monkeypatch):
+    """DoD: tool_inspect_note retorna recent_accesses com sources corretos."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.mcp_server import tool_add_note, tool_inspect_note
+
+    tool_add_note(
+        note_id="2026-05-20-audit", note_type="semantic",
+        title="x", body="# x\n\nbody",
+    )
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-05-20-audit", "review")
+    record_access(conn, "2026-05-20-audit", "recall_hit")
+
+    result = tool_inspect_note("2026-05-20-audit")
+    sources = {a["source"] for a in result["recent_accesses"]}
+    assert sources >= {"review", "recall_hit"}
