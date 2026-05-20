@@ -1,0 +1,5 @@
+# Brainiac-specific overrides — neutralize global gitignore for files
+# that ARE part of this project (this repo is about the AI workflow itself)
+!CLAUDE.md
+!/docs/
+!/.claude/
