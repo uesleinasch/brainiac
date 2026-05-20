@@ -238,3 +238,54 @@ def test_add_link_records_access_source_link_in_on_destination(fake_brainiac, em
         "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-dst",)
     ).fetchone()
     assert row[0] == "link_in"
+
+
+def test_recall_records_recall_hit_for_each_top_k_hit(fake_brainiac, embedder_stub):
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    for nid in ["2026-05-20-r1", "2026-05-20-r2"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, f"# {nid}\n\nshared keyword body")
+        index_note(conn, fm, f"# {nid}\n\nshared keyword body", str(p.relative_to(fake_brainiac)))
+
+    hits = recall(conn, "shared keyword", k=5)
+    hit_ids = {h["id"] for h in hits}
+
+    rows = conn.execute(
+        "SELECT note_id, source FROM accesses WHERE source = 'recall_hit'"
+    ).fetchall()
+    recorded_ids = {r[0] for r in rows}
+    assert hit_ids.issubset(recorded_ids)
+
+
+def test_recall_ranking_boosts_more_activated_notes(fake_brainiac, embedder_stub):
+    """Two notes equally semantically similar; the one with more recent accesses ranks first."""
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    conn = connect(index_db_path(fake_brainiac))
+    body = "# x\n\nDKG protocol distributed key generation"
+    for nid in ["2026-05-20-cold", "2026-05-20-hot"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, body)
+        index_note(conn, fm, body, str(p.relative_to(fake_brainiac)))
+
+    # Seed "hot" with 5 recent accesses; "cold" gets nothing
+    for h in [1, 2, 3, 4, 5]:
+        record_access(conn, "2026-05-20-hot", "get", now=now - timedelta(hours=h))
+
+    hits = recall(conn, "DKG protocol", k=5)
+    ids = [h["id"] for h in hits]
+    # "hot" comes first thanks to activation boost
+    assert ids.index("2026-05-20-hot") < ids.index("2026-05-20-cold")
