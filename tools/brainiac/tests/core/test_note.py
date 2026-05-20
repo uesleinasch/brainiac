@@ -51,3 +51,25 @@ class TestWriteAndParseRoundtrip:
         write_note(tmp_path / "n.md", fm, "# body\n")
         fm2, _ = parse_note(tmp_path / "n.md")
         assert fm2.sm2 is None
+
+
+from brainiac.core.note import new_note
+
+
+class TestNewNote:
+    def test_defaults(self):
+        fm = new_note(note_id="2026-05-20-x", note_type="semantic")
+        assert fm.access_count == 0
+        assert fm.strength == 1.0
+        assert fm.source == "manual"
+        assert fm.created == fm.last_access  # mesma timestamp inicialmente
+
+    def test_overrides(self):
+        fm = new_note(
+            note_id="2026-05-20-y",
+            note_type="episodic",
+            tags=["mytag"],
+            source="conversation",
+        )
+        assert fm.tags == ["mytag"]
+        assert fm.source == "conversation"
