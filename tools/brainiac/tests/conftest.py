@@ -30,13 +30,15 @@ def make_fm(
     strength: float = 1.0,
     tags: list[str] | None = None,
     links: list[str] | None = None,
+    last_access: datetime | None = None,
+    created: datetime | None = None,
 ) -> NoteFrontmatter:
-    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    default_now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
     return NoteFrontmatter(
         id=note_id,
         type=note_type,
-        created=now,
-        last_access=now,
+        created=created or default_now,
+        last_access=last_access or default_now,
         access_count=access_count,
         strength=strength,
         tags=tags or [],
