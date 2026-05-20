@@ -186,3 +186,32 @@ def test_promote_note_raises_for_invalid_target_type(fake_brainiac):
     conn = connect(index_db_path(fake_brainiac))
     with pytest.raises(ValueError, match="target_type"):
         promote_note(conn, fake_brainiac, "2026-05-17-badtype", "working")
+
+
+def test_consolidation_candidates_includes_borderline_high_activation(fake_brainiac):
+    """Borderline (access_count=2, fan_in≥1) é promovido se activation alta."""
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.activation import record_access
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    # Borderline: access_count=2 only, but with link_in + frequent accesses
+    _seed(
+        fake_brainiac,
+        "2026-05-18-border",
+        "working",
+        access_count=2,
+        last_access=recent,
+        links_from=["2026-05-15-linker"],
+    )
+    conn = connect(index_db_path(fake_brainiac))
+    # Boost activation above 1.5 threshold (14 accesses at hourly intervals → ~1.82)
+    for h in range(1, 15):
+        record_access(conn, "2026-05-18-border", "get", now=now - timedelta(hours=h))
+
+    candidates = consolidation_candidates(conn, now=now)
+    ids = [c["id"] for c in candidates]
+    assert "2026-05-18-border" in ids

@@ -35,6 +35,12 @@ Orquestra busca semântica + expansão no grafo + leitura das notas mais relevan
 
 6. **Sugerir nota nova** se a resposta levou a um insight que vale persistir (handoff implícito para `brainiac-capture`).
 
+## Sinalização de ativação (Phase 5)
+
+Para cada resultado de recall, você pode chamar `inspect_note(id)` via MCP para enriquecer a apresentação. Se `activation > 1.5`, adicione o badge **🔥 ativação alta** ao mostrar a nota — indica que o traço de memória está em uso ativo e vale a pena ser revisitado.
+
+Use com moderação: só chame `inspect_note` quando o usuário pedir mais contexto ou quando o resultado for ambíguo. Em recall simples, o output puro do `recall()` é suficiente.
+
 ## Quando não usar
 
 - Pergunta sobre algo fora do escopo das notas do usuário ("qual a capital da França")

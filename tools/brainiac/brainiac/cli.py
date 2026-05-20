@@ -43,6 +43,25 @@ def stats() -> None:
     click.echo(f"links: {link_count}")
     click.echo(f"archived: {archived_count}")
 
+    # Phase 5: events + top activations
+    from brainiac.core.activation import activation_batch
+    event_count = conn.execute("SELECT COUNT(*) FROM accesses").fetchone()[0]
+    click.echo(f"events recorded: {event_count}")
+
+    if event_count > 0:
+        active_ids = [r[0] for r in conn.execute(
+            "SELECT id FROM notes WHERE archived = 0"
+        ).fetchall()]
+        acts = activation_batch(conn, active_ids)
+        ranked = sorted(
+            [(nid, a) for nid, a in acts.items() if a != float("-inf")],
+            key=lambda x: x[1], reverse=True,
+        )[:5]
+        if ranked:
+            click.echo("top 5 by activation:")
+            for nid, a in ranked:
+                click.echo(f"  {nid}: {a:.2f}")
+
 
 @main.command()
 @click.option("--dry-run", is_flag=True, help="Show what would be archived without archiving.")
@@ -168,6 +187,57 @@ def classify(path: Path) -> None:
         click.echo("suggested: ambiguous (consider asking the user or refining the body)")
     else:
         click.echo(f"suggested: {suggested} (confidence: {confidence:.2f})")
+
+
+@main.command()
+@click.argument("note_id")
+def inspect(note_id: str) -> None:
+    """Show the 3 cognitive axes + access history for a note."""
+    from brainiac.core.activation import access_history, activation
+
+    root = find_root()
+    conn = connect(index_db_path(root))
+    row = conn.execute(
+        "SELECT type, access_count, strength, last_access, sm2_json, archived "
+        "FROM notes WHERE id = ?",
+        (note_id,),
+    ).fetchone()
+    if row is None:
+        raise click.ClickException(f"Note not found: {note_id}")
+
+    note_type, access_count, strength, last_access, sm2_json, archived = row
+    act = activation(conn, note_id)
+
+    click.echo(f"id: {note_id}")
+    click.echo(f"type: {note_type}")
+    click.echo(f"archived: {bool(archived)}")
+    click.echo("")
+    click.echo("Eixos cognitivos:")
+    click.echo(f"  retention:  {strength:.3f} (Ebbinghaus)")
+    if act == float("-inf"):
+        click.echo("  activation: no trace yet (no accesses)")
+    else:
+        click.echo(f"  activation: {act:.3f} (ACT-R)")
+    if sm2_json:
+        import json
+        sm2 = json.loads(sm2_json)
+        click.echo(
+            f"  sm2:        ease={sm2['ease']} interval={sm2['interval']} "
+            f"reps={sm2['reps']} next={sm2['next_review']}"
+        )
+    else:
+        click.echo("  sm2:        not enrolled")
+    click.echo("")
+    click.echo(f"access_count: {access_count}")
+    click.echo(f"last_access: {last_access}")
+    click.echo("")
+    history = access_history(conn, note_id, limit=10)
+    if history:
+        click.echo(f"Últimos {len(history)} acessos:")
+        for h in history:
+            click.echo(f"  {h['ts']}  {h['source']}  (w={h['weight']})")
+    else:
+        click.echo("Sem acessos registrados.")
 
 
 @main.command()

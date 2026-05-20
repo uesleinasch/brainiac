@@ -248,3 +248,32 @@ def test_run_decay_dry_run_does_not_archive(fake_brainiac):
     assert stats["archived"] >= 1
     assert (fake_brainiac / "semanticMemory" / "2026-03-21-dry.md").exists()
     assert stats["updated"] == 0  # dry_run skips DB writes
+
+
+def test_archive_log_includes_activation(fake_brainiac):
+    """When run_decay archives, a follow-up archive_detail event captures activation + retention."""
+    from datetime import datetime, timezone
+    from brainiac.core.activation import record_access
+    from brainiac.core.decay import run_decay
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    old_access = datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+
+    _seed_note(fake_brainiac, "2026-03-21-arc-log", "semantic",
+               last_access=old_access, access_count=0)
+    conn = connect(index_db_path(fake_brainiac))
+    record_access(conn, "2026-03-21-arc-log", "get", now=old_access)
+
+    run_decay(conn, fake_brainiac, now=now)
+
+    events_file = fake_brainiac / "memoryTransfer" / "logs" / "events.jsonl"
+    entries = [json.loads(l) for l in events_file.read_text().strip().split("\n") if l]
+    archive_details = [
+        e for e in entries
+        if e["note_id"] == "2026-03-21-arc-log" and e["action"] == "archive_detail"
+    ]
+    assert len(archive_details) == 1
+    assert "activation" in archive_details[0]["detail"]
+    assert "retention" in archive_details[0]["detail"]

@@ -1,6 +1,7 @@
 import re
 import sqlite3
 
+import pytest
 import sqlite_vec
 
 from brainiac.core.index import connect, index_note, recall, reindex_all, search_vec
@@ -154,3 +155,137 @@ def test_recall_does_not_return_archived_neighbor_via_1hop(fake_brainiac, embedd
     result_ids = [r["id"] for r in results]
     assert "2026-05-20-seed-active" in result_ids  # seed appears
     assert "2026-05-20-neighbor-arc" not in result_ids  # archived neighbor excluded
+
+
+def test_connect_creates_accesses_table(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(accesses)").fetchall()]
+    assert set(cols) == {"id", "note_id", "ts", "source", "weight"}
+
+
+def test_connect_creates_accesses_index(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    indexes = [r[1] for r in conn.execute("PRAGMA index_list(accesses)").fetchall()]
+    assert "idx_accesses_note_ts" in indexes
+
+
+def test_connect_idempotent_on_existing_accesses_table(fake_brainiac):
+    """Running connect() twice on the same DB must not raise."""
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    db_path = index_db_path(fake_brainiac)
+    conn1 = connect(db_path)
+    conn1.close()
+    conn2 = connect(db_path)  # must not raise
+    cols = [r[1] for r in conn2.execute("PRAGMA table_info(accesses)").fetchall()]
+    assert "note_id" in cols
+
+
+def test_accesses_source_check_constraint(fake_brainiac):
+    import sqlite3
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO accesses (note_id, ts, source, weight) VALUES (?, ?, ?, ?)",
+            ("2026-05-20-x", "2026-05-20T10:00:00+00:00", "bogus_source", 1.0),
+        )
+
+
+def test_get_note_records_access_source_get(fake_brainiac, embedder_stub):
+    from brainiac.core.index import connect, index_note, get_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-gn", "semantic")
+    p = note_path(fake_brainiac, "2026-05-20-gn", "semantic")
+    write_note(p, fm, "# x\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    get_note(conn, fake_brainiac, "2026-05-20-gn")
+    row = conn.execute(
+        "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-gn",)
+    ).fetchone()
+    assert row[0] == "get"
+
+
+def test_add_link_records_access_source_link_in_on_destination(fake_brainiac, embedder_stub):
+    from brainiac.core.index import add_link, connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    for nid in ["2026-05-20-src", "2026-05-20-dst"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, f"# {nid}\n\nbody")
+        index_note(conn, fm, f"# {nid}\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    add_link(conn, fake_brainiac, "2026-05-20-src", "2026-05-20-dst")
+    row = conn.execute(
+        "SELECT source FROM accesses WHERE note_id = ?", ("2026-05-20-dst",)
+    ).fetchone()
+    assert row[0] == "link_in"
+
+
+def test_recall_records_recall_hit_for_each_top_k_hit(fake_brainiac, embedder_stub):
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    for nid in ["2026-05-20-r1", "2026-05-20-r2"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, f"# {nid}\n\nshared keyword body")
+        index_note(conn, fm, f"# {nid}\n\nshared keyword body", str(p.relative_to(fake_brainiac)))
+
+    hits = recall(conn, "shared keyword", k=5)
+    hit_ids = {h["id"] for h in hits}
+
+    rows = conn.execute(
+        "SELECT note_id, source FROM accesses WHERE source = 'recall_hit'"
+    ).fetchall()
+    recorded_ids = {r[0] for r in rows}
+    assert hit_ids.issubset(recorded_ids)
+
+
+def test_recall_ranking_boosts_more_activated_notes(fake_brainiac, embedder_stub):
+    """Two notes equally semantically similar; the one with more recent accesses ranks first."""
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    conn = connect(index_db_path(fake_brainiac))
+    body = "# x\n\nDKG protocol distributed key generation"
+    for nid in ["2026-05-20-cold", "2026-05-20-hot"]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, body)
+        index_note(conn, fm, body, str(p.relative_to(fake_brainiac)))
+
+    # Seed "hot" with 5 recent accesses; "cold" gets nothing
+    for h in [1, 2, 3, 4, 5]:
+        record_access(conn, "2026-05-20-hot", "get", now=now - timedelta(hours=h))
+
+    hits = recall(conn, "DKG protocol", k=5)
+    ids = [h["id"] for h in hits]
+    # "hot" comes first thanks to activation boost
+    assert ids.index("2026-05-20-hot") < ids.index("2026-05-20-cold")

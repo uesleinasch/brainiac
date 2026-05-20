@@ -1,9 +1,10 @@
 """MCP server exposing brainiac tools via stdio.
 
-Tools (11): add_note, recall, get_note, link, list_recent,
+Tools (12): add_note, recall, get_note, link, list_recent,
             consolidate_check, forget,
             review_queue, grade_review, start_review,
-            working_status
+            working_status,
+            inspect_note
 """
 
 import asyncio
@@ -173,6 +174,32 @@ def tool_working_status() -> dict:
     return working_status(conn, load_config(root))
 
 
+def tool_inspect_note(note_id: str) -> dict:
+    """Snapshot dos 3 eixos cognitivos (retention/activation/sm2) + audit trail."""
+    import json
+    from brainiac.core.activation import access_history, activation
+    root = find_root()
+    conn = connect(index_db_path(root))
+    row = conn.execute(
+        "SELECT type, access_count, strength, last_access, sm2_json, archived "
+        "FROM notes WHERE id = ?",
+        (note_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"Note not found: {note_id}")
+    return {
+        "id": note_id,
+        "type": row[0],
+        "access_count": row[1],
+        "strength": row[2],
+        "last_access": row[3],
+        "sm2": json.loads(row[4]) if row[4] else None,
+        "archived": bool(row[5]),
+        "activation": activation(conn, note_id),
+        "recent_accesses": access_history(conn, note_id, limit=10),
+    }
+
+
 # --- MCP server plumbing ---
 
 server = Server("brainiac")
@@ -309,6 +336,19 @@ async def _list_tools() -> list[Tool]:
             ),
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="inspect_note",
+            description=(
+                "Snapshot dos 3 eixos cognitivos de uma nota: retention (Ebbinghaus), "
+                "activation (ACT-R), sm2 (SuperMemo-2), além dos últimos 10 acessos "
+                "registrados com source e weight."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"note_id": {"type": "string"}},
+                "required": ["note_id"],
+            },
+        ),
     ]
 
 
@@ -324,6 +364,7 @@ _DISPATCH = {
     "grade_review": tool_grade_review,
     "start_review": tool_start_review,
     "working_status": tool_working_status,
+    "inspect_note": tool_inspect_note,
 }
 
 

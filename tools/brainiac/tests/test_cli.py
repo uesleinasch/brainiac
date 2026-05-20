@@ -290,3 +290,51 @@ class TestClassifyCommand:
 
         result = CliRunner().invoke(main, ["classify", str(fake_brainiac / "missing.md")])
         assert result.exit_code != 0
+
+
+class TestInspectCommand:
+    def test_inspect_command_outputs_three_axes(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.index import connect, index_note
+        from brainiac.core.note import write_note
+        from brainiac.core.paths import index_db_path, note_path
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-20-cli-insp", "semantic")
+        p = note_path(fake_brainiac, "2026-05-20-cli-insp", "semantic")
+        write_note(p, fm, "# x\n\nbody")
+        conn = connect(index_db_path(fake_brainiac))
+        index_note(conn, fm, "# x\n\nbody", str(p.relative_to(fake_brainiac)))
+
+        result = CliRunner().invoke(main, ["inspect", "2026-05-20-cli-insp"])
+        assert result.exit_code == 0
+        assert "retention" in result.output.lower()
+        assert "activation" in result.output.lower()
+        assert "sm2" in result.output.lower()
+
+    def test_inspect_command_raises_for_unknown_note(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        result = CliRunner().invoke(main, ["inspect", "2026-05-20-cli-ghost"])
+        assert result.exit_code != 0
+
+
+def test_stats_command_shows_event_count_and_top_activations(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.activation import record_access
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-stat-act", "semantic")
+    p = note_path(fake_brainiac, "2026-05-20-stat-act", "semantic")
+    write_note(p, fm, "# x\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x\n\nbody", str(p.relative_to(fake_brainiac)))
+    for _ in range(3):
+        record_access(conn, "2026-05-20-stat-act", "get")
+
+    result = CliRunner().invoke(main, ["stats"])
+    assert result.exit_code == 0
+    assert "events" in result.output.lower()
+    assert "activation" in result.output.lower()

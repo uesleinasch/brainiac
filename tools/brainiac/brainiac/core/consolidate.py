@@ -9,16 +9,22 @@ def consolidation_candidates(
     conn: sqlite3.Connection,
     now: datetime | None = None,
     window_days: int = 7,
+    *,
+    activation_threshold: float = 1.5,
 ) -> list[dict]:
     """Return working notes ready for promotion.
 
-    Criteria: type='working', archived=0, access_count >= 3,
-    last_access within window_days, fan_in >= 1 explicit incoming link.
+    Primary criteria (Phase 2): type='working', archived=0, access_count >= 3,
+    last_access within window_days, fan_in >= 1.
+
+    Borderline (Phase 5): access_count = 2 + fan_in >= 1 + activation >= threshold.
     """
+    from brainiac.core.activation import activation_batch
+
     now = now or datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=window_days)).isoformat()
 
-    rows = conn.execute(
+    primary_rows = conn.execute(
         """
         SELECT n.id, n.path, n.access_count, n.last_access,
                COUNT(l.src) as fan_in
@@ -35,17 +41,48 @@ def consolidation_candidates(
         (cutoff,),
     ).fetchall()
 
-    return [
+    out = [
         {
-            "id": r[0],
-            "path": r[1],
-            "access_count": r[2],
-            "last_access": r[3],
-            "fan_in": r[4],
+            "id": r[0], "path": r[1], "access_count": r[2],
+            "last_access": r[3], "fan_in": r[4],
             "suggested_type": "semantic",
         }
-        for r in rows
+        for r in primary_rows
     ]
+    seen = {c["id"] for c in out}
+
+    # Borderline path
+    borderline_rows = conn.execute(
+        """
+        SELECT n.id, n.path, n.access_count, n.last_access,
+               COUNT(l.src) as fan_in
+        FROM notes n
+        LEFT JOIN links l ON l.dst = n.id AND l.kind = 'explicit'
+        WHERE n.type = 'working'
+          AND n.archived = 0
+          AND n.access_count = 2
+          AND n.last_access >= ?
+        GROUP BY n.id
+        HAVING fan_in >= 1
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    if borderline_rows:
+        borderline_ids = [r[0] for r in borderline_rows if r[0] not in seen]
+        if borderline_ids:
+            acts = activation_batch(conn, borderline_ids, now=now)
+            for r in borderline_rows:
+                if r[0] in seen:
+                    continue
+                if acts.get(r[0], float("-inf")) >= activation_threshold:
+                    out.append({
+                        "id": r[0], "path": r[1], "access_count": r[2],
+                        "last_access": r[3], "fan_in": r[4],
+                        "suggested_type": "semantic",
+                    })
+
+    return out
 
 
 def promote_note(

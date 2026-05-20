@@ -80,6 +80,18 @@ def connect(db_path: Path) -> sqlite3.Connection:
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
+
+    # Phase 5: accesses table for ACT-R activation
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS accesses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id TEXT NOT NULL,
+            ts TEXT NOT NULL,
+            source TEXT NOT NULL CHECK(source IN ('get', 'review', 'recall_hit', 'link_in')),
+            weight REAL NOT NULL DEFAULT 1.0
+        );
+        CREATE INDEX IF NOT EXISTS idx_accesses_note_ts ON accesses(note_id, ts);
+    """)
     conn.commit()
     return conn
 
@@ -266,6 +278,9 @@ def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
     write_note(full, fm, body)
     index_note(conn, fm, body, rel_path)
 
+    from brainiac.core.activation import record_access
+    record_access(conn, fm.id, "get")
+
     return {
         "id": fm.id,
         "type": fm.type,
@@ -316,6 +331,9 @@ def add_link(
         fm.links.append(dst)
         write_note(full, fm, body)
         index_note(conn, fm, body, rel_path)
+
+        from brainiac.core.activation import record_access
+        record_access(conn, dst, "link_in")
 
 
 def _fallback_fts(
@@ -395,5 +413,29 @@ def recall(
                     "origin": meta["kind"],
                 }
 
+    # Phase 5: combine semantic score with ACT-R activation (z-score normalized per query)
+    import statistics
+    from brainiac.core.activation import activation_batch, record_access
+
+    candidate_ids = list(scored.keys())
+    acts = activation_batch(conn, candidate_ids)
+    finite_vals = [v for v in acts.values() if v != float("-inf")]
+    mean = statistics.fmean(finite_vals) if finite_vals else 0.0
+    stdev = statistics.stdev(finite_vals) if len(finite_vals) > 1 else 1.0
+
+    ALPHA, BETA = 0.7, 0.3
+    for nid, item in scored.items():
+        a = acts.get(nid, float("-inf"))
+        # Notes with no access history (-inf) get -1.0 (one stdev below mean),
+        # ensuring any note with real activation outranks un-accessed notes.
+        a_norm = -1.0 if a == float("-inf") else (a - mean) / (stdev or 1.0)
+        item["score"] = ALPHA * item["score"] + BETA * a_norm
+
     results = sorted(scored.values(), key=lambda r: r["score"], reverse=True)
-    return results[:k]
+    top_k = results[:k]
+
+    # Record recall_hit AFTER reorder (the current query already saw the previous state)
+    for hit in top_k:
+        record_access(conn, hit["id"], "recall_hit")
+
+    return top_k
