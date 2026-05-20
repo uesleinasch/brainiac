@@ -64,10 +64,9 @@ def test_reindex_all_repopulates_notes_vec(fake_brainiac, embedder_stub):
 
     conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
     # populate stale data to ensure reindex clears it
-    import sqlite_vec as _sv
     conn.execute(
         "INSERT INTO notes_vec(id, embedding) VALUES (?, ?)",
-        ("stale-id", _sv.serialize_float32([0.0] * 384)),
+        ("stale-id", sqlite_vec.serialize_float32([0.0] * 384)),
     )
     conn.commit()
 
