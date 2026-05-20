@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-import sqlite_vec
-
 IMPLICIT_THRESHOLD: float = 0.75
 NEIGHBOR_DECAY: float = 0.5
 
