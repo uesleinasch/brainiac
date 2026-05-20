@@ -1,11 +1,12 @@
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from tests.conftest import make_fm
-from brainiac.core.index import index_note, reindex_all, search_fts
-from brainiac.core.note import write_note
+from brainiac.core.index import get_note, index_note, reindex_all, search_fts
+from brainiac.core.note import parse_note, write_note
 
 
 class TestIndexNote:
@@ -189,3 +190,42 @@ class TestSearchFts:
         index_note(conn, make_fm("2026-05-20-a"), "# café da manhã", "x.md")
         results = search_fts(conn, "cafe", k=5)
         assert len(results) == 1
+
+
+class TestGetNote:
+    def test_returns_note_data(self, conn, fake_brainiac):
+        fm = make_fm(note_id="2026-05-20-a")
+        write_note(fake_brainiac / "semanticMemory" / "2026-05-20-a.md", fm,
+                   "# Title\n\ncorpo da nota")
+        reindex_all(conn, fake_brainiac)
+
+        result = get_note(conn, fake_brainiac, "2026-05-20-a")
+        assert result["id"] == "2026-05-20-a"
+        assert result["type"] == "semantic"
+        assert "Title" in result["body"]
+        assert result["frontmatter"]["access_count"] == 1  # incrementado
+
+    def test_increments_access_count_on_disk(self, conn, fake_brainiac):
+        path = fake_brainiac / "semanticMemory" / "2026-05-20-a.md"
+        write_note(path, make_fm(note_id="2026-05-20-a", access_count=2), "# x")
+        reindex_all(conn, fake_brainiac)
+
+        get_note(conn, fake_brainiac, "2026-05-20-a")
+
+        fm_after, _ = parse_note(path)
+        assert fm_after.access_count == 3
+
+    def test_updates_last_access(self, conn, fake_brainiac):
+        path = fake_brainiac / "semanticMemory" / "2026-05-20-a.md"
+        write_note(path, make_fm(note_id="2026-05-20-a"), "# x")
+        reindex_all(conn, fake_brainiac)
+
+        before = datetime.now(timezone.utc)
+        get_note(conn, fake_brainiac, "2026-05-20-a")
+
+        fm_after, _ = parse_note(path)
+        assert fm_after.last_access >= before
+
+    def test_raises_for_missing_note(self, conn, fake_brainiac):
+        with pytest.raises(KeyError):
+            get_note(conn, fake_brainiac, "2026-05-20-nonexistent")

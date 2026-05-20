@@ -1,10 +1,11 @@
 import hashlib
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from brainiac.core.models import NoteFrontmatter
-from brainiac.core.note import parse_note
+from brainiac.core.note import parse_note, write_note
 
 _MEMORY_DIRS = ("shortMemory", "longMemory", "semanticMemory")
 
@@ -158,3 +159,30 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
 
     conn.commit()
     return count
+
+
+def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
+    """Read a note, increment access_count, update last_access, reindex."""
+    row = conn.execute(
+        "SELECT path, type FROM notes WHERE id = ?", (note_id,)
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"Note not found: {note_id}")
+
+    rel_path, note_type = row
+    full = root / rel_path
+    fm, body = parse_note(full)
+
+    fm.access_count += 1
+    fm.last_access = datetime.now(timezone.utc)
+
+    write_note(full, fm, body)
+    index_note(conn, fm, body, rel_path)
+
+    return {
+        "id": fm.id,
+        "type": fm.type,
+        "path": rel_path,
+        "frontmatter": fm.model_dump(mode="json"),
+        "body": body,
+    }
