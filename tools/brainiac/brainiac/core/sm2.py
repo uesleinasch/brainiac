@@ -96,9 +96,12 @@ def start_review(
     rel = row[0]
     full = root / rel
     fm, body = parse_note(full)
+    if fm.sm2 is not None:
+        raise ValueError(f"Note {note_id} is already enrolled in spaced repetition")
     fm.sm2 = start_sm2(today=today)
     write_note(full, fm, body)
     index_note(conn, fm, body, rel)
+    conn.commit()
 
     log_event(
         root,
@@ -122,17 +125,18 @@ def review_queue(
         """
         SELECT id, path, type, sm2_json
         FROM notes
-        WHERE archived = 0 AND sm2_json IS NOT NULL
+        WHERE archived = 0
+          AND sm2_json IS NOT NULL
+          AND json_extract(sm2_json, '$.next_review') <= ?
         ORDER BY json_extract(sm2_json, '$.next_review') ASC,
                  json_extract(sm2_json, '$.ease') ASC
         """,
+        (today.isoformat(),),
     ).fetchall()
 
     out: list[dict] = []
     for note_id, rel_path, note_type, sm2_json in rows:
         sm2 = SM2.model_validate_json(sm2_json)
-        if sm2.next_review > today:
-            continue
         out.append({
             "id": note_id,
             "path": rel_path,
@@ -184,6 +188,7 @@ def grade_review(
 
     write_note(full, fm, body)
     index_note(conn, fm, body, rel)
+    conn.commit()
 
     log_event(
         root,

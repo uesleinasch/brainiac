@@ -355,3 +355,19 @@ def test_grade_review_rejects_invalid_grade(fake_brainiac):
     conn = connect(index_db_path(fake_brainiac))
     with pytest.raises(ValueError):
         grade_review(conn, fake_brainiac, "2026-05-20-bad", q=7, today=today)
+
+
+def test_start_review_raises_if_already_enrolled(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.sm2 import start_review
+
+    today = date(2026, 5, 20)
+    _seed(
+        fake_brainiac,
+        "2026-05-20-double-enroll",
+        sm2=SM2(ease=2.5, interval=1, reps=0, next_review=today),
+    )
+    conn = connect(index_db_path(fake_brainiac))
+    with pytest.raises(ValueError):
+        start_review(conn, fake_brainiac, "2026-05-20-double-enroll", today=today)
