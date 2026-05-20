@@ -85,3 +85,60 @@ def test_tool_recall_returns_origin_badge(fake_brainiac, embedder_stub, monkeypa
     results = tool_recall(query="DKG", k=3)
     assert len(results) >= 1
     assert all("origin" in r for r in results)
+
+
+from datetime import datetime, timedelta, timezone
+
+
+def test_tool_forget_archives_note(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_forget
+
+    tool_add_note(
+        note_id="2026-05-20-forget-me",
+        note_type="semantic",
+        title="Forget Me",
+        body="# Forget Me\n\nconteúdo temporário",
+    )
+    result = tool_forget("2026-05-20-forget-me")
+
+    assert result["id"] == "2026-05-20-forget-me"
+    assert result["action"] == "archived"
+    assert "archived_path" in result
+    archived = fake_brainiac / "memoryTransfer" / "archive"
+    assert any(archived.rglob("2026-05-20-forget-me.md"))
+
+
+def test_tool_forget_unknown_note_returns_error(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_forget
+
+    with pytest.raises(KeyError):
+        tool_forget("2026-05-20-ghost")
+
+
+def test_tool_consolidate_check_returns_candidates(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.mcp_server import tool_consolidate_check
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    fm = make_fm("2026-05-18-cand", note_type="working",
+                 access_count=5, last_access=recent)
+    p = note_path(fake_brainiac, "2026-05-18-cand", "working")
+    write_note(p, fm, "# cand\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    rel = str(p.relative_to(fake_brainiac))
+    index_note(conn, fm, "# cand\n\nbody", rel)
+    conn.execute(
+        "INSERT OR IGNORE INTO links(src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+        ("2026-05-15-other", "2026-05-18-cand"),
+    )
+    conn.commit()
+
+    candidates = tool_consolidate_check(window_days=7)
+    assert any(c["id"] == "2026-05-18-cand" for c in candidates)
