@@ -6,6 +6,7 @@ from pathlib import Path
 
 import sqlite_vec
 
+from brainiac.core import embeddings
 from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
@@ -74,6 +75,25 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _existing_body_hash(conn: sqlite3.Connection, note_id: str) -> str | None:
+    row = conn.execute("SELECT body_hash FROM notes WHERE id = ?", (note_id,)).fetchone()
+    return row[0] if row else None
+
+
+def _store_embedding(conn: sqlite3.Connection, note_id: str, title: str, body: str) -> None:
+    text = f"{title}\n\n{body}" if title else body
+    try:
+        vec = embeddings.embed_texts([text])[0]
+    except Exception:
+        return  # fail-soft: vec index stays stale; FTS5 still works
+    payload = sqlite_vec.serialize_float32(vec.tolist())
+    conn.execute("DELETE FROM notes_vec WHERE id = ?", (note_id,))
+    conn.execute(
+        "INSERT INTO notes_vec(id, embedding) VALUES (?, ?)",
+        (note_id, payload),
+    )
+
+
 def index_note(
     conn: sqlite3.Connection,
     fm: NoteFrontmatter,
@@ -83,6 +103,8 @@ def index_note(
     """Insert or replace a note in all index tables. Syncs explicit links."""
     title = _extract_title(body)
     bh = _body_hash(body)
+    prev_hash = _existing_body_hash(conn, fm.id)
+    needs_embed = prev_hash != bh
 
     conn.execute(
         """
@@ -118,6 +140,9 @@ def index_note(
             "VALUES (?, ?, 'explicit', 1.0)",
             (fm.id, dst),
         )
+
+    if needs_embed:
+        _store_embedding(conn, fm.id, title, body)
 
     conn.commit()
 

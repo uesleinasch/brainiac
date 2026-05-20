@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from brainiac.core.index import connect
@@ -41,3 +42,26 @@ def make_fm(
         tags=tags or [],
         links=links or [],
     )
+
+
+@pytest.fixture
+def embedder_stub(monkeypatch):
+    """Substitui embed_texts/embed_query por vetores determinísticos baseados em hash."""
+    from brainiac.core import embeddings
+
+    def fake_embed_texts(texts):
+        out = np.zeros((len(texts), 384), dtype=np.float32)
+        for i, t in enumerate(texts):
+            h = hash(t) & 0xFFFFFFFF
+            rng = np.random.default_rng(h)
+            v = rng.standard_normal(384).astype(np.float32)
+            v /= np.linalg.norm(v) + 1e-9
+            out[i] = v
+        return out
+
+    def fake_embed_query(text):
+        return fake_embed_texts([text])[0]
+
+    monkeypatch.setattr(embeddings, "embed_texts", fake_embed_texts)
+    monkeypatch.setattr(embeddings, "embed_query", fake_embed_query)
+    monkeypatch.setattr(embeddings, "model_available", lambda: True)
