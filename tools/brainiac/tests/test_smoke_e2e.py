@@ -1,5 +1,6 @@
 """End-to-end smoke: exerce o fluxo capture → recall → get → reindex sem MCP plumbing."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -98,3 +99,52 @@ def test_reindex_after_manual_edit(fake_brainiac: Path, monkeypatch):
         "SELECT tags FROM notes WHERE id = ?", ("2026-05-20-x",)
     ).fetchone()
     assert "manually-added" in result[0]
+
+
+@pytest.mark.slow
+def test_recall_finds_dkg_without_lexical_overlap(fake_brainiac, monkeypatch):
+    """DoD: 'criação distribuída de chaves' recupera 'DKG protocol'."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_recall
+
+    tool_add_note(
+        note_id="2026-05-20-dkg",
+        note_type="semantic",
+        title="DKG protocol",
+        body="distributed key generation; multi-party computation; threshold cryptography",
+        tags=["crypto"],
+    )
+    # ruido
+    tool_add_note(
+        note_id="2026-05-20-mostarda",
+        note_type="semantic",
+        title="Receita de mostarda",
+        body="sementes de mostarda, vinagre, sal",
+        tags=["culinaria"],
+    )
+    results = tool_recall(query="criação distribuída de chaves criptográficas", k=3)
+    assert any(r["id"] == "2026-05-20-dkg" for r in results)
+    dkg = next(r for r in results if r["id"] == "2026-05-20-dkg")
+    assert dkg["origin"] in {"semantic", "both"}
+
+
+@pytest.mark.slow
+def test_recall_latency_under_500ms_for_modest_corpus(fake_brainiac, monkeypatch):
+    """DoD: recall < 500ms — usando corpus de 50 notas (proxy do budget de 1000)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_recall
+
+    for i in range(50):
+        tool_add_note(
+            note_id=f"2026-05-20-perf-{i:02d}",
+            note_type="semantic",
+            title=f"Nota {i}",
+            body=f"conteudo sintetico {i} sobre topico variado",
+        )
+    # warmup (modelo já carregado nos add_note acima)
+    tool_recall(query="warmup", k=5)
+
+    t0 = time.perf_counter()
+    tool_recall(query="topico variado", k=5)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    assert elapsed_ms < 500, f"recall took {elapsed_ms:.1f}ms"
