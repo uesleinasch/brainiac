@@ -35,3 +35,10 @@ def stats() -> None:
     for t, c in by_type:
         click.echo(f"  {t}: {c}")
     click.echo(f"links: {link_count}")
+
+
+@main.command()
+def mcp() -> None:
+    """Start the MCP stdio server."""
+    from brainiac.mcp_server import run_server
+    run_server()
