@@ -22,9 +22,13 @@ def _get_model():
     global _model, _load_failed
     if _model is not None:
         return _model
+    if _load_failed:
+        raise RuntimeError("embeddings: model previously failed to load")
     with _lock:
         if _model is not None:
             return _model
+        if _load_failed:
+            raise RuntimeError("embeddings: model previously failed to load")
         try:
             from sentence_transformers import SentenceTransformer
             _model = SentenceTransformer(_MODEL_NAME)
@@ -49,7 +53,9 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
         convert_to_numpy=True,
         show_progress_bar=False,
     )
-    return vecs.astype(np.float32, copy=False)
+    vecs = vecs.astype(np.float32, copy=False)
+    assert vecs.shape[-1] == _EMBED_DIM, f"Unexpected embedding dim: {vecs.shape[-1]}"
+    return vecs
 
 
 def embed_query(text: str) -> np.ndarray:

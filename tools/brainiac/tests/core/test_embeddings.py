@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from unittest.mock import patch
 
 from brainiac.core import embeddings
 
@@ -29,5 +30,20 @@ def test_semantic_similarity_pt_br():
     assert sim > 0.45  # >> overlap lexical (zero)
 
 
-def test_model_available_returns_bool():
-    assert isinstance(embeddings.model_available(), bool)
+def test_model_available_is_false_before_load():
+    embeddings.reset_for_tests()
+    assert embeddings.model_available() is False
+
+
+def test_embed_query_failure_path_short_circuits():
+    embeddings.reset_for_tests()
+    with patch("sentence_transformers.SentenceTransformer", side_effect=RuntimeError("mock load error")):
+        with pytest.raises(Exception):
+            embeddings.embed_query("any text")
+    # After failure, model_available() must return False
+    assert embeddings.model_available() is False
+    # Second call must also raise without re-attempting load
+    with pytest.raises(RuntimeError, match="previously failed"):
+        embeddings.embed_query("any text again")
+    # Restore clean state for other tests
+    embeddings.reset_for_tests()
