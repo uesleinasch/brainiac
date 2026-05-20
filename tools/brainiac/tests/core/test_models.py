@@ -64,3 +64,19 @@ class TestSM2:
         sm2 = SM2(next_review=date(2026, 5, 21))
         assert sm2.ease == 2.5
         assert sm2.interval == 1
+
+
+class TestSM2Reps:
+    def test_reps_defaults_to_zero(self):
+        sm2 = SM2(next_review=date(2026, 5, 21))
+        assert sm2.reps == 0
+
+    def test_reps_accepts_positive_int(self):
+        sm2 = SM2(reps=3, next_review=date(2026, 5, 21))
+        assert sm2.reps == 3
+
+    def test_reps_rejects_negative(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            SM2(reps=-1, next_review=date(2026, 5, 21))
