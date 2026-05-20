@@ -3,7 +3,8 @@ import sqlite3
 
 import sqlite_vec
 
-from brainiac.core.index import connect, index_note
+from brainiac.core.index import connect, index_note, reindex_all
+from brainiac.core.note import write_note
 from tests.conftest import make_fm
 
 
@@ -53,3 +54,25 @@ def test_index_note_skips_embed_when_body_hash_unchanged(fake_brainiac, embedder
     # body diferente → deve re-embedar
     index_note(conn, fm, "# Bar\n\nALTERADA", "semanticMemory/2026-05-20-bar.md")
     assert calls["n"] == 1
+
+
+def test_reindex_all_repopulates_notes_vec(fake_brainiac, embedder_stub):
+    fm1 = make_fm(note_id="2026-05-20-a")
+    fm2 = make_fm(note_id="2026-05-20-b")
+    write_note(fake_brainiac / "semanticMemory" / "2026-05-20-a.md", fm1, "# A\n\ntexto a")
+    write_note(fake_brainiac / "semanticMemory" / "2026-05-20-b.md", fm2, "# B\n\ntexto b")
+
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    # populate stale data to ensure reindex clears it
+    import sqlite_vec as _sv
+    conn.execute(
+        "INSERT INTO notes_vec(id, embedding) VALUES (?, ?)",
+        ("stale-id", _sv.serialize_float32([0.0] * 384)),
+    )
+    conn.commit()
+
+    n = reindex_all(conn, fake_brainiac)
+    assert n == 2
+
+    ids = {r[0] for r in conn.execute("SELECT id FROM notes_vec").fetchall()}
+    assert ids == {"2026-05-20-a", "2026-05-20-b"}

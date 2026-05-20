@@ -179,6 +179,7 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
     conn.execute("DELETE FROM notes")
     conn.execute("DELETE FROM notes_fts")
     conn.execute("DELETE FROM links WHERE kind = 'explicit'")
+    conn.execute("DELETE FROM notes_vec")
 
     count = 0
     for md_file in root.rglob("*.md"):
