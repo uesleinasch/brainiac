@@ -12,6 +12,9 @@ dependencies = [
     "pydantic>=2",
     "python-frontmatter>=1.1",
     "click>=8",
+    "sentence-transformers>=2.7",
+    "sqlite-vec>=0.1.6",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +33,7 @@ packages = ["brainiac"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=brainiac --cov-report=term-missing"
+markers = ["slow: tests que carregam o modelo de embeddings (>3s)"]
 
 [tool.coverage.run]
 branch = true
