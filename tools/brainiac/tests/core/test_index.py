@@ -6,6 +6,7 @@ import pytest
 
 from tests.conftest import make_fm
 from brainiac.core.index import add_link, get_note, index_note, reindex_all, search_fts
+from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
 
@@ -275,3 +276,35 @@ class TestAddLink:
     def test_raises_for_missing_source(self, conn, fake_brainiac):
         with pytest.raises(KeyError):
             add_link(conn, fake_brainiac, "2026-05-20-missing", "2026-05-20-other")
+
+
+class TestListRecent:
+    def test_orders_by_last_access_desc(self, conn):
+        from datetime import datetime, timezone, timedelta
+        base = datetime(2026, 5, 20, 10, tzinfo=timezone.utc)
+        for i in range(3):
+            fm = NoteFrontmatter(
+                id=f"2026-05-20-n{i}",
+                type="semantic",
+                created=base,
+                last_access=base + timedelta(hours=i),
+                access_count=0,
+                strength=1.0,
+            )
+            index_note(conn, fm, f"# {i}", f"x{i}.md")
+
+        from brainiac.core.index import list_recent
+        results = list_recent(conn, limit=10)
+        ids = [r["id"] for r in results]
+        assert ids == ["2026-05-20-n2", "2026-05-20-n1", "2026-05-20-n0"]
+
+    def test_respects_limit(self, conn):
+        for i in range(5):
+            index_note(conn, make_fm(f"2026-05-20-n{i}"), f"# {i}", "x.md")
+        from brainiac.core.index import list_recent
+        results = list_recent(conn, limit=2)
+        assert len(results) == 2
+
+    def test_empty_returns_empty(self, conn):
+        from brainiac.core.index import list_recent
+        assert list_recent(conn, limit=10) == []

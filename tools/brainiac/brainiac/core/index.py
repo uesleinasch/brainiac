@@ -188,6 +188,26 @@ def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
     }
 
 
+def list_recent(conn: sqlite3.Connection, limit: int = 10) -> list[dict]:
+    """Return notes ordered by last_access desc."""
+    rows = conn.execute(
+        """
+        SELECT id, path, type, last_access, access_count
+        FROM notes
+        ORDER BY last_access DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [
+        {
+            "id": r[0], "path": r[1], "type": r[2],
+            "last_access": r[3], "access_count": r[4],
+        }
+        for r in rows
+    ]
+
+
 def add_link(
     conn: sqlite3.Connection,
     root: Path,
