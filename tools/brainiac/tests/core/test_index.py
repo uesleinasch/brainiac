@@ -3,6 +3,58 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import make_fm
+from brainiac.core.index import index_note
+
+
+class TestIndexNote:
+    def test_inserts_into_notes(self, conn):
+        fm = make_fm(note_id="2026-05-20-a", tags=["x"])
+        index_note(conn, fm, "# Título\n\n- bullet", "semanticMemory/2026-05-20-a.md")
+
+        row = conn.execute("SELECT id, path, type, access_count FROM notes WHERE id=?",
+                           (fm.id,)).fetchone()
+        assert row == ("2026-05-20-a", "semanticMemory/2026-05-20-a.md", "semantic", 0)
+
+    def test_inserts_into_fts(self, conn):
+        fm = make_fm(note_id="2026-05-20-b")
+        index_note(conn, fm, "# Distributed Key Generation\n\nDKG protocol", "x.md")
+
+        hit = conn.execute(
+            "SELECT id FROM notes_fts WHERE notes_fts MATCH 'distributed'"
+        ).fetchone()
+        assert hit == ("2026-05-20-b",)
+
+    def test_explicit_links_synced(self, conn):
+        fm = make_fm(note_id="2026-05-20-c", links=["2026-05-20-other"])
+        index_note(conn, fm, "# t", "x.md")
+
+        row = conn.execute(
+            "SELECT src, dst, kind FROM links WHERE src=?", (fm.id,)
+        ).fetchone()
+        assert row == ("2026-05-20-c", "2026-05-20-other", "explicit")
+
+    def test_replace_on_reindex(self, conn):
+        fm = make_fm(note_id="2026-05-20-d", links=["a"])
+        index_note(conn, fm, "# v1", "x.md")
+        fm2 = make_fm(note_id="2026-05-20-d", links=["b"])
+        index_note(conn, fm2, "# v2", "x.md")
+
+        # link antigo desapareceu, novo presente
+        links = {r[1] for r in conn.execute(
+            "SELECT src, dst FROM links WHERE src=?", (fm.id,)
+        ).fetchall()}
+        assert links == {"b"}
+
+    def test_extracts_title_from_body(self, conn):
+        fm = make_fm(note_id="2026-05-20-e")
+        index_note(conn, fm, "# Meu Título\n\ncorpo", "x.md")
+
+        title = conn.execute(
+            "SELECT title FROM notes_fts WHERE id=?", (fm.id,)
+        ).fetchone()
+        assert title == ("Meu Título",)
+
 
 class TestConnect:
     def test_creates_db_file(self, fake_brainiac: Path):
