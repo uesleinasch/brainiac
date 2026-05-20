@@ -1,6 +1,8 @@
 """MCP server exposing brainiac tools via stdio.
 
-Tools (7): add_note, recall, get_note, link, list_recent, consolidate_check, forget
+Tools (10): add_note, recall, get_note, link, list_recent,
+            consolidate_check, forget,
+            review_queue, grade_review, start_review
 """
 
 import asyncio
@@ -30,10 +32,15 @@ def tool_add_note(
     title: str,
     body: str,
     tags: list[str] | None = None,
+    study: bool = False,
 ) -> dict:
-    """Create a new note. Body should start with '# title'."""
+    """Create a new note. Body should start with '# title'. If study=True, enrolls in SM-2."""
     root = find_root()
     fm = new_note(note_id=note_id, note_type=note_type, tags=tags or [])
+
+    if study:
+        from brainiac.core.sm2 import start_sm2
+        fm.sm2 = start_sm2()
 
     # ensure body starts with a title line
     body_with_title = body if body.lstrip().startswith("#") else f"# {title}\n\n{body}"
@@ -95,6 +102,44 @@ def tool_forget(note_id: str) -> dict:
     return {"id": note_id, "archived_path": new_path, "action": "archived"}
 
 
+def tool_review_queue() -> list[dict]:
+    """Return notes whose next_review <= today, ordered by urgency then ease."""
+    from brainiac.core.sm2 import review_queue
+    root = find_root()
+    conn = connect(index_db_path(root))
+    return review_queue(conn)
+
+
+def tool_grade_review(note_id: str, grade: int) -> dict:
+    """Apply a grade (0-5) to a review. Returns new SM2 state."""
+    from brainiac.core.sm2 import grade_review
+    root = find_root()
+    conn = connect(index_db_path(root))
+    sm2 = grade_review(conn, root, note_id, q=grade)
+    return {
+        "id": note_id,
+        "ease": sm2.ease,
+        "interval": sm2.interval,
+        "reps": sm2.reps,
+        "next_review": sm2.next_review.isoformat(),
+    }
+
+
+def tool_start_review(note_id: str) -> dict:
+    """Enroll an existing note in spaced repetition."""
+    from brainiac.core.sm2 import start_review
+    root = find_root()
+    conn = connect(index_db_path(root))
+    sm2 = start_review(conn, root, note_id)
+    return {
+        "id": note_id,
+        "ease": sm2.ease,
+        "interval": sm2.interval,
+        "reps": sm2.reps,
+        "next_review": sm2.next_review.isoformat(),
+    }
+
+
 # --- MCP server plumbing ---
 
 server = Server("brainiac")
@@ -105,7 +150,7 @@ async def _list_tools() -> list[Tool]:
     return [
         Tool(
             name="add_note",
-            description="Create a new brainiac note with frontmatter and index it.",
+            description="Create a new brainiac note with frontmatter and index it. study=true enrolls in SM-2 spaced repetition.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -114,6 +159,7 @@ async def _list_tools() -> list[Tool]:
                     "title": {"type": "string"},
                     "body": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "study": {"type": "boolean", "default": False},
                 },
                 "required": ["note_id", "note_type", "title", "body"],
             },
@@ -189,6 +235,39 @@ async def _list_tools() -> list[Tool]:
                 "required": ["note_id"],
             },
         ),
+        Tool(
+            name="review_queue",
+            description=(
+                "Lista notas inscritas em SM-2 vencidas hoje. "
+                "Ordenadas por urgência (mais atrasada primeiro), tiebreak por ease menor."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="grade_review",
+            description=(
+                "Aplica grade 0-5 a uma revisão SM-2. "
+                "0-2 = falha (reseta interval=1); 3-5 = sucesso (avança). "
+                "Também incrementa access_count/last_access."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "string"},
+                    "grade": {"type": "integer", "minimum": 0, "maximum": 5},
+                },
+                "required": ["note_id", "grade"],
+            },
+        ),
+        Tool(
+            name="start_review",
+            description="Inscreve uma nota existente em revisão espaçada (cria bloco sm2).",
+            inputSchema={
+                "type": "object",
+                "properties": {"note_id": {"type": "string"}},
+                "required": ["note_id"],
+            },
+        ),
     ]
 
 
@@ -200,6 +279,9 @@ _DISPATCH = {
     "list_recent": tool_list_recent,
     "consolidate_check": tool_consolidate_check,
     "forget": tool_forget,
+    "review_queue": tool_review_queue,
+    "grade_review": tool_grade_review,
+    "start_review": tool_start_review,
 }
 
 
