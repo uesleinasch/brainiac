@@ -171,6 +171,36 @@ def search_fts(
     ]
 
 
+def search_vec(
+    conn: sqlite3.Connection,
+    query: str,
+    k: int = 5,
+) -> list[dict]:
+    """Top-k semantic search via cosine distance over notes_vec."""
+    import sqlite_vec
+    qvec = embeddings.embed_query(query)
+    payload = sqlite_vec.serialize_float32(qvec.tolist())
+    rows = conn.execute(
+        """
+        SELECT n.id, n.path, n.type,
+               vec_distance_cosine(v.embedding, ?) as dist,
+               (SELECT title FROM notes_fts f WHERE f.id = n.id) as title
+        FROM notes_vec v JOIN notes n ON n.id = v.id
+        ORDER BY dist ASC
+        LIMIT ?
+        """,
+        (payload, k),
+    ).fetchall()
+    return [
+        {
+            "id": r[0], "path": r[1], "type": r[2],
+            "title": r[4] or "",
+            "score": float(1.0 - r[3]),
+        }
+        for r in rows
+    ]
+
+
 def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
     """Wipe and rebuild index from .md files in memory dirs. Returns count.
 

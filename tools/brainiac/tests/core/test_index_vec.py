@@ -3,7 +3,7 @@ import sqlite3
 
 import sqlite_vec
 
-from brainiac.core.index import connect, index_note, reindex_all
+from brainiac.core.index import connect, index_note, reindex_all, search_vec
 from brainiac.core.note import write_note
 from tests.conftest import make_fm
 
@@ -75,3 +75,20 @@ def test_reindex_all_repopulates_notes_vec(fake_brainiac, embedder_stub):
 
     ids = {r[0] for r in conn.execute("SELECT id FROM notes_vec").fetchall()}
     assert ids == {"2026-05-20-a", "2026-05-20-b"}
+
+
+def test_search_vec_returns_topk_with_similarity(fake_brainiac, embedder_stub):
+    fm_a = make_fm(note_id="2026-05-20-alpha")
+    fm_b = make_fm(note_id="2026-05-20-beta")
+    write_note(fake_brainiac / "semanticMemory" / "2026-05-20-alpha.md", fm_a, "# Alpha\n\nalfa")
+    write_note(fake_brainiac / "semanticMemory" / "2026-05-20-beta.md", fm_b, "# Beta\n\nbeta")
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+    reindex_all(conn, fake_brainiac)
+
+    results = search_vec(conn, "qualquer query", k=2)
+    assert len(results) == 2
+    for r in results:
+        assert set(r.keys()) >= {"id", "path", "type", "title", "score"}
+        assert -1.0 <= r["score"] <= 1.0
+    # ordenação por score desc
+    assert results[0]["score"] >= results[1]["score"]
