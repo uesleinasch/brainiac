@@ -94,11 +94,13 @@ def run_decay(
     stats: dict[str, int] = {"checked": len(rows), "updated": 0, "archived": 0}
     to_archive: list[str] = []
 
+    ret_map: dict[str, float] = {}
     for note_id, last_access_str, access_count in rows:
         last_access = datetime.fromisoformat(last_access_str)
         if last_access.tzinfo is None:
             last_access = last_access.replace(tzinfo=timezone.utc)
         new_s = updated_strength(last_access, access_count, now=now)
+        ret_map[note_id] = new_s
 
         if not dry_run:
             conn.execute(
@@ -112,9 +114,17 @@ def run_decay(
 
     if not dry_run:
         conn.commit()
+        from brainiac.core.activation import activation as compute_activation
+        from brainiac.core.events import log_event
         for note_id in to_archive:
             try:
                 archive_note(conn, root, note_id, now=now)
+                act = compute_activation(conn, note_id, now=now)
+                retention_val = ret_map.get(note_id, 0.0)
+                log_event(
+                    root, note_id, "archive_detail",
+                    f"retention={retention_val:.3f} activation={act:.3f}",
+                )
                 stats["archived"] += 1
             except (KeyError, FileNotFoundError):
                 pass
