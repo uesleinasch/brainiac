@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import make_fm
-from brainiac.core.index import index_note, reindex_all
+from brainiac.core.index import index_note, reindex_all, search_fts
 from brainiac.core.note import write_note
 
 
@@ -157,3 +157,35 @@ class TestReindexAll:
         assert n == 0
         rows = conn.execute("SELECT COUNT(*) FROM notes").fetchone()
         assert rows == (0,)
+
+
+class TestSearchFts:
+    def test_returns_matching_notes(self, conn):
+        index_note(conn, make_fm("2026-05-20-a"), "# Pizza\n\nfood from Italy", "x.md")
+        index_note(conn, make_fm("2026-05-20-b"), "# Code\n\nPython programming", "y.md")
+
+        results = search_fts(conn, "pizza", k=5)
+        assert len(results) == 1
+        assert results[0]["id"] == "2026-05-20-a"
+        assert results[0]["type"] == "semantic"
+        assert "title" in results[0]
+        assert "snippet" in results[0]
+
+    def test_respects_k_limit(self, conn):
+        for i in range(5):
+            index_note(conn, make_fm(f"2026-05-20-n{i}"),
+                       f"# Topic {i}\n\nshared keyword across all", "x.md")
+        results = search_fts(conn, "shared", k=3)
+        assert len(results) == 3
+
+    def test_empty_corpus(self, conn):
+        assert search_fts(conn, "anything", k=5) == []
+
+    def test_no_matches(self, conn):
+        index_note(conn, make_fm("2026-05-20-a"), "# foo", "x.md")
+        assert search_fts(conn, "bar", k=5) == []
+
+    def test_diacritic_insensitive(self, conn):
+        index_note(conn, make_fm("2026-05-20-a"), "# café da manhã", "x.md")
+        results = search_fts(conn, "cafe", k=5)
+        assert len(results) == 1

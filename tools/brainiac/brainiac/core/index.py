@@ -111,6 +111,30 @@ def index_note(
     conn.commit()
 
 
+def search_fts(
+    conn: sqlite3.Connection,
+    query: str,
+    k: int = 5,
+) -> list[dict]:
+    """Top-k search via FTS5 + BM25 ranking."""
+    rows = conn.execute(
+        """
+        SELECT n.id, n.path, n.type, fts.title,
+               snippet(notes_fts, 2, '[', ']', '...', 32) as snippet
+        FROM notes_fts fts
+        JOIN notes n ON n.id = fts.id
+        WHERE notes_fts MATCH ?
+        ORDER BY bm25(notes_fts)
+        LIMIT ?
+        """,
+        (query, k),
+    ).fetchall()
+    return [
+        {"id": r[0], "path": r[1], "type": r[2], "title": r[3], "snippet": r[4]}
+        for r in rows
+    ]
+
+
 def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
     """Wipe and rebuild index from .md files in memory dirs. Returns count.
 
