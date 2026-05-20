@@ -186,3 +186,26 @@ def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:
         "frontmatter": fm.model_dump(mode="json"),
         "body": body,
     }
+
+
+def add_link(
+    conn: sqlite3.Connection,
+    root: Path,
+    src: str,
+    dst: str,
+) -> None:
+    """Add explicit link src→dst. Updates both frontmatter and index. Idempotent."""
+    row = conn.execute(
+        "SELECT path FROM notes WHERE id = ?", (src,)
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"Source note not found: {src}")
+
+    rel_path = row[0]
+    full = root / rel_path
+    fm, body = parse_note(full)
+
+    if dst not in fm.links:
+        fm.links.append(dst)
+        write_note(full, fm, body)
+        index_note(conn, fm, body, rel_path)

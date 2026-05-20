@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import make_fm
-from brainiac.core.index import get_note, index_note, reindex_all, search_fts
+from brainiac.core.index import add_link, get_note, index_note, reindex_all, search_fts
 from brainiac.core.note import parse_note, write_note
 
 
@@ -229,3 +229,49 @@ class TestGetNote:
     def test_raises_for_missing_note(self, conn, fake_brainiac):
         with pytest.raises(KeyError):
             get_note(conn, fake_brainiac, "2026-05-20-nonexistent")
+
+
+class TestAddLink:
+    def test_adds_link_in_frontmatter(self, conn, fake_brainiac):
+        path_a = fake_brainiac / "semanticMemory" / "2026-05-20-a.md"
+        path_b = fake_brainiac / "semanticMemory" / "2026-05-20-b.md"
+        write_note(path_a, make_fm(note_id="2026-05-20-a"), "# A")
+        write_note(path_b, make_fm(note_id="2026-05-20-b"), "# B")
+        reindex_all(conn, fake_brainiac)
+
+        add_link(conn, fake_brainiac, "2026-05-20-a", "2026-05-20-b")
+
+        fm_a, _ = parse_note(path_a)
+        assert "2026-05-20-b" in fm_a.links
+
+    def test_adds_link_in_db(self, conn, fake_brainiac):
+        write_note(fake_brainiac / "semanticMemory" / "2026-05-20-a.md",
+                   make_fm(note_id="2026-05-20-a"), "# A")
+        write_note(fake_brainiac / "semanticMemory" / "2026-05-20-b.md",
+                   make_fm(note_id="2026-05-20-b"), "# B")
+        reindex_all(conn, fake_brainiac)
+
+        add_link(conn, fake_brainiac, "2026-05-20-a", "2026-05-20-b")
+
+        row = conn.execute(
+            "SELECT src, dst, kind FROM links WHERE src=? AND dst=?",
+            ("2026-05-20-a", "2026-05-20-b"),
+        ).fetchone()
+        assert row == ("2026-05-20-a", "2026-05-20-b", "explicit")
+
+    def test_idempotent_no_duplicates(self, conn, fake_brainiac):
+        write_note(fake_brainiac / "semanticMemory" / "2026-05-20-a.md",
+                   make_fm(note_id="2026-05-20-a"), "# A")
+        write_note(fake_brainiac / "semanticMemory" / "2026-05-20-b.md",
+                   make_fm(note_id="2026-05-20-b"), "# B")
+        reindex_all(conn, fake_brainiac)
+
+        add_link(conn, fake_brainiac, "2026-05-20-a", "2026-05-20-b")
+        add_link(conn, fake_brainiac, "2026-05-20-a", "2026-05-20-b")
+
+        fm_a, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-a.md")
+        assert fm_a.links.count("2026-05-20-b") == 1
+
+    def test_raises_for_missing_source(self, conn, fake_brainiac):
+        with pytest.raises(KeyError):
+            add_link(conn, fake_brainiac, "2026-05-20-missing", "2026-05-20-other")
