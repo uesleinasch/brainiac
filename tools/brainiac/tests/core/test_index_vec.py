@@ -70,8 +70,8 @@ def test_reindex_all_repopulates_notes_vec(fake_brainiac, embedder_stub):
     )
     conn.commit()
 
-    n = reindex_all(conn, fake_brainiac)
-    assert n == 2
+    active, _ = reindex_all(conn, fake_brainiac)
+    assert active == 2
 
     ids = {r[0] for r in conn.execute("SELECT id FROM notes_vec").fetchall()}
     assert ids == {"2026-05-20-a", "2026-05-20-b"}
@@ -129,3 +129,28 @@ def test_reindex_all_indexes_archived_notes_from_archive_dir(fake_brainiac, embe
     row = conn.execute("SELECT archived FROM notes WHERE id = ?", ("2026-05-20-old-arc",)).fetchone()
     assert row is not None
     assert row[0] == 1
+
+
+def test_recall_does_not_return_archived_neighbor_via_1hop(fake_brainiac, embedder_stub):
+    """Archived note reached via 1-hop expansion must not appear in default recall."""
+    conn = connect(fake_brainiac / "memoryTransfer" / "index.sqlite")
+
+    # Active seed note
+    fm_seed = make_fm(note_id="2026-05-20-seed-active")
+    index_note(conn, fm_seed, "# Seed\n\nbody seed content", "semanticMemory/2026-05-20-seed-active.md")
+
+    # Archived neighbor that seed links to
+    fm_arc = make_fm(note_id="2026-05-20-neighbor-arc")
+    index_note(conn, fm_arc, "# Arc Neighbor\n\nbody seed content", "semanticMemory/2026-05-20-neighbor-arc.md", archived=True)
+
+    # Add explicit link from seed → archived neighbor
+    conn.execute(
+        "INSERT OR IGNORE INTO links(src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+        ("2026-05-20-seed-active", "2026-05-20-neighbor-arc"),
+    )
+    conn.commit()
+
+    results = recall(conn, "seed content", k=10)
+    result_ids = [r["id"] for r in results]
+    assert "2026-05-20-seed-active" in result_ids  # seed appears
+    assert "2026-05-20-neighbor-arc" not in result_ids  # archived neighbor excluded

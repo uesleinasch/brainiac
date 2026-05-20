@@ -210,8 +210,8 @@ def search_vec(
     ]
 
 
-def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
-    """Wipe and rebuild index from .md files. Returns count of active notes.
+def reindex_all(conn: sqlite3.Connection, root: Path) -> tuple[int, int]:
+    """Wipe and rebuild index from .md files. Returns (active_count, archived_count).
 
     Idempotent: scans both active memory dirs and memoryTransfer/archive/.
     """
@@ -232,6 +232,7 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
         except Exception as exc:
             print(f"skipping {rel}: {exc}")
 
+    archived_count = 0
     archive_root = root / _ARCHIVE_SUBDIR[0] / _ARCHIVE_SUBDIR[1]
     if archive_root.exists():
         for md_file in archive_root.rglob("*.md"):
@@ -239,11 +240,12 @@ def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
             try:
                 fm, body = parse_note(md_file)
                 index_note(conn, fm, body, str(rel), archived=True)
+                archived_count += 1
             except Exception as exc:
                 print(f"skipping archive {rel}: {exc}")
 
     conn.commit()
-    return count
+    return count, archived_count
 
 
 def get_note(conn: sqlite3.Connection, root: Path, note_id: str) -> dict:

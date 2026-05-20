@@ -91,8 +91,8 @@ def test_reindex_after_manual_edit(fake_brainiac: Path, monkeypatch):
     from brainiac.core.index import connect, reindex_all
     from brainiac.core.paths import index_db_path
     conn = connect(index_db_path(fake_brainiac))
-    n = reindex_all(conn, fake_brainiac)
-    assert n == 1
+    active, _ = reindex_all(conn, fake_brainiac)
+    assert active == 1
 
     # recall via tag agora funciona (tags estão em notes.tags JSON)
     result = conn.execute(

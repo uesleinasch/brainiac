@@ -14,8 +14,11 @@ def reindex() -> None:
     """Rebuild the SQLite index from .md files."""
     root = find_root()
     conn = connect(index_db_path(root))
-    n = reindex_all(conn, root)
-    click.echo(f"reindexed {n} note(s) from {root}")
+    active, archived = reindex_all(conn, root)
+    msg = f"reindexed {active} active note(s) from {root}"
+    if archived:
+        msg += f" ({archived} archived)"
+    click.echo(msg)
 
 
 @main.command()
