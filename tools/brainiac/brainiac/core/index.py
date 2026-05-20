@@ -4,6 +4,9 @@ import sqlite3
 from pathlib import Path
 
 from brainiac.core.models import NoteFrontmatter
+from brainiac.core.note import parse_note
+
+_MEMORY_DIRS = ("shortMemory", "longMemory", "semanticMemory")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS notes (
@@ -106,3 +109,28 @@ def index_note(
         )
 
     conn.commit()
+
+
+def reindex_all(conn: sqlite3.Connection, root: Path) -> int:
+    """Wipe and rebuild index from .md files in memory dirs. Returns count.
+
+    Idempotent: result depends only on filesystem state, not previous index state.
+    """
+    conn.execute("DELETE FROM notes")
+    conn.execute("DELETE FROM notes_fts")
+    conn.execute("DELETE FROM links WHERE kind = 'explicit'")
+
+    count = 0
+    for md_file in root.rglob("*.md"):
+        rel = md_file.relative_to(root)
+        if not rel.parts or rel.parts[0] not in _MEMORY_DIRS:
+            continue
+        try:
+            fm, body = parse_note(md_file)
+            index_note(conn, fm, body, str(rel))
+            count += 1
+        except Exception as exc:
+            print(f"skipping {rel}: {exc}")
+
+    conn.commit()
+    return count

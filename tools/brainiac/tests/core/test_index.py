@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import make_fm
-from brainiac.core.index import index_note
+from brainiac.core.index import index_note, reindex_all
+from brainiac.core.note import write_note
 
 
 class TestIndexNote:
@@ -80,3 +81,79 @@ class TestConnect:
         db = fake_brainiac / "memoryTransfer" / "index.sqlite"
         connect(db).close()
         connect(db).close()  # segundo connect não deve falhar
+
+
+class TestReindexAll:
+    def test_empty_brainiac_returns_zero(self, conn, fake_brainiac):
+        n = reindex_all(conn, fake_brainiac)
+        assert n == 0
+
+    def test_indexes_notes_in_correct_dirs(self, conn, fake_brainiac):
+        write_note(
+            fake_brainiac / "semanticMemory" / "2026-05-20-a.md",
+            make_fm(note_id="2026-05-20-a", note_type="semantic"),
+            "# A\n",
+        )
+        write_note(
+            fake_brainiac / "shortMemory" / "2026-05-20-b.md",
+            make_fm(note_id="2026-05-20-b", note_type="working"),
+            "# B\n",
+        )
+        write_note(
+            fake_brainiac / "longMemory" / "episodic" / "2026-05-20-c.md",
+            make_fm(note_id="2026-05-20-c", note_type="episodic"),
+            "# C\n",
+        )
+
+        n = reindex_all(conn, fake_brainiac)
+        assert n == 3
+
+        ids = {r[0] for r in conn.execute("SELECT id FROM notes").fetchall()}
+        assert ids == {"2026-05-20-a", "2026-05-20-b", "2026-05-20-c"}
+
+    def test_ignores_files_outside_memory_dirs(self, conn, fake_brainiac):
+        # nota legítima
+        write_note(
+            fake_brainiac / "semanticMemory" / "2026-05-20-a.md",
+            make_fm(note_id="2026-05-20-a"),
+            "# A\n",
+        )
+        # arquivo fora de memory dirs — não deve ser indexado
+        (fake_brainiac / "docs").mkdir()
+        (fake_brainiac / "docs" / "random.md").write_text("# not a note\n")
+        (fake_brainiac / "README.md").write_text("# repo readme\n")
+
+        n = reindex_all(conn, fake_brainiac)
+        assert n == 1
+
+    def test_skips_invalid_frontmatter_without_crashing(self, conn, fake_brainiac, capsys):
+        # nota válida
+        write_note(
+            fake_brainiac / "semanticMemory" / "2026-05-20-good.md",
+            make_fm(note_id="2026-05-20-good"),
+            "# good\n",
+        )
+        # nota com frontmatter quebrado
+        (fake_brainiac / "semanticMemory" / "broken.md").write_text(
+            "---\nid: invalid format\n---\n# x\n", encoding="utf-8"
+        )
+
+        n = reindex_all(conn, fake_brainiac)
+        assert n == 1  # só a boa contou
+        captured = capsys.readouterr()
+        assert "broken.md" in captured.out  # log do skip
+
+    def test_idempotent_wipes_before_rebuild(self, conn, fake_brainiac):
+        write_note(
+            fake_brainiac / "semanticMemory" / "2026-05-20-a.md",
+            make_fm(note_id="2026-05-20-a"),
+            "# A\n",
+        )
+        reindex_all(conn, fake_brainiac)
+
+        # remove o arquivo e roda de novo
+        (fake_brainiac / "semanticMemory" / "2026-05-20-a.md").unlink()
+        n = reindex_all(conn, fake_brainiac)
+        assert n == 0
+        rows = conn.execute("SELECT COUNT(*) FROM notes").fetchone()
+        assert rows == (0,)
