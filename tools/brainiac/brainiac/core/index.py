@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import sqlite_vec
+
 from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
@@ -26,6 +28,11 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     id UNINDEXED, title, body,
     tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
+    id TEXT PRIMARY KEY,
+    embedding FLOAT[384]
 );
 
 CREATE TABLE IF NOT EXISTS links (
@@ -55,10 +62,13 @@ def _extract_title(body: str) -> str:
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Open SQLite connection and ensure schema. Idempotent."""
+    """Open SQLite connection, load sqlite-vec, ensure schema. Idempotent."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
     conn.executescript(_SCHEMA)
     conn.commit()
     return conn
