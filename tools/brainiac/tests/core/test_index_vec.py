@@ -3,7 +3,8 @@ import sqlite3
 
 import sqlite_vec
 
-from brainiac.core.index import connect
+from brainiac.core.index import connect, index_note
+from tests.conftest import make_fm
 
 
 def test_connect_loads_sqlite_vec_and_creates_notes_vec(fake_brainiac):
@@ -21,10 +22,6 @@ def test_notes_vec_accepts_384_float_vector(fake_brainiac):
     )
     n = conn.execute("SELECT COUNT(*) FROM notes_vec").fetchone()[0]
     assert n == 1
-
-
-from brainiac.core.index import index_note
-from tests.conftest import make_fm
 
 
 def test_index_note_persists_embedding(fake_brainiac, embedder_stub):
