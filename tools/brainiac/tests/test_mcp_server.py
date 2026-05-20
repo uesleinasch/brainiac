@@ -142,3 +142,71 @@ def test_tool_consolidate_check_returns_candidates(fake_brainiac, monkeypatch):
 
     candidates = tool_consolidate_check(window_days=7)
     assert any(c["id"] == "2026-05-18-cand" for c in candidates)
+
+
+def test_tool_add_note_with_study_enrolls_sm2(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note
+    from brainiac.core.note import parse_note
+
+    tool_add_note(
+        note_id="2026-05-20-study",
+        note_type="semantic",
+        title="Studyable",
+        body="# Studyable\n\nfact",
+        study=True,
+    )
+    fm, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-study.md")
+    assert fm.sm2 is not None
+    assert fm.sm2.reps == 0
+    assert fm.sm2.interval == 1
+
+
+def test_tool_start_review_enrolls_existing_note(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_start_review
+
+    tool_add_note(
+        note_id="2026-05-20-existing",
+        note_type="semantic",
+        title="x", body="# x\n\nbody",
+    )
+    result = tool_start_review("2026-05-20-existing")
+    assert result["id"] == "2026-05-20-existing"
+    assert result["next_review"]  # ISO string
+    assert result["reps"] == 0
+    assert result["ease"] == 2.5  # SM-2 initial ease
+    assert result["interval"] == 1  # SM-2 initial interval
+
+
+def test_tool_review_queue_returns_due_notes(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_review_queue
+
+    tool_add_note(
+        note_id="2026-05-20-q1",
+        note_type="semantic",
+        title="x", body="# x\n\nbody",
+        study=True,
+    )
+    queue = tool_review_queue()
+    assert len(queue) >= 1
+    assert any(item["id"] == "2026-05-20-q1" for item in queue)
+
+
+def test_tool_grade_review_updates_state(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_grade_review
+
+    tool_add_note(
+        note_id="2026-05-20-g",
+        note_type="semantic",
+        title="x", body="# x\n\nbody",
+        study=True,
+    )
+    result = tool_grade_review("2026-05-20-g", grade=5)
+    assert result["id"] == "2026-05-20-g"
+    assert result["reps"] == 1
+    assert result["interval"] == 1  # first successful rep: interval stays at 1
+    assert result["ease"] > 2.5  # grade=5 raises ease (2.5 → 2.6)
+    assert "next_review" in result

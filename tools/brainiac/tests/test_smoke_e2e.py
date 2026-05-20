@@ -246,3 +246,132 @@ def test_housekeep_report_is_readable(fake_brainiac, monkeypatch):
     result2 = CliRunner().invoke(main, ["consolidate", "--auto"])
     assert result2.exit_code == 0
     assert "No candidates" in result2.output or "Promoted" in result2.output
+
+
+# --- DoD Phase 3 ---
+
+from datetime import date
+
+
+def test_capture_with_study_creates_sm2_block(fake_brainiac, monkeypatch):
+    """DoD: posso marcar nota como 'estudar' via capture (study=True)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note
+    from brainiac.core.note import parse_note
+
+    tool_add_note(
+        note_id="2026-05-20-study-dod",
+        note_type="semantic",
+        title="Studyable",
+        body="# Studyable\n\nfato relevante",
+        study=True,
+    )
+    fm, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-study-dod.md")
+    assert fm.sm2 is not None
+    assert fm.sm2.reps == 0
+    assert fm.sm2.interval == 1
+
+
+def test_review_queue_ordered_by_urgency(fake_brainiac, monkeypatch):
+    """DoD: /brainiac-review apresenta fila ordenada por urgência."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.models import SM2
+    from brainiac.core.sm2 import review_queue
+    from tests.conftest import make_fm
+
+    today = date(2026, 5, 20)
+    # 2 notas vencidas (uma há 5d, outra há 1d) e 1 futura
+    for note_id, next_review in [
+        ("2026-05-15-very-old", date(2026, 5, 15)),
+        ("2026-05-19-recent", date(2026, 5, 19)),
+        ("2026-05-25-future", date(2026, 5, 25)),
+    ]:
+        fm = make_fm(note_id, "semantic")
+        fm.sm2 = SM2(ease=2.5, interval=1, reps=0, next_review=next_review)
+        p = note_path(fake_brainiac, note_id, "semantic")
+        write_note(p, fm, f"# {note_id}\n\nbody")
+        conn = connect(index_db_path(fake_brainiac))
+        index_note(conn, fm, f"# {note_id}\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    queue = review_queue(conn, today=today)
+    ids = [item["id"] for item in queue]
+    assert ids == ["2026-05-15-very-old", "2026-05-19-recent"]
+    assert "2026-05-25-future" not in ids
+
+
+def test_grade_low_reschedules_to_tomorrow(fake_brainiac, monkeypatch):
+    """DoD: grade 0-2 reagenda para amanhã."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.models import SM2
+    from brainiac.core.sm2 import grade_review
+    from tests.conftest import make_fm
+
+    today = date(2026, 5, 20)
+    fm = make_fm("2026-05-20-fail-dod", "semantic")
+    fm.sm2 = SM2(ease=2.5, interval=16, reps=3, next_review=today)
+    p = note_path(fake_brainiac, "2026-05-20-fail-dod", "semantic")
+    write_note(p, fm, "# fail\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# fail\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    new_sm2 = grade_review(conn, fake_brainiac, "2026-05-20-fail-dod", q=1, today=today)
+    assert new_sm2.interval == 1
+    assert new_sm2.reps == 0
+    assert (new_sm2.next_review - today).days == 1
+
+
+def test_grade_5_expands_interval_correctly(fake_brainiac, monkeypatch):
+    """DoD: grade 5 expande corretamente o intervalo (reps=1 → 2 com interval=6)."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.models import SM2
+    from brainiac.core.sm2 import grade_review
+    from tests.conftest import make_fm
+
+    today = date(2026, 5, 20)
+    fm = make_fm("2026-05-20-pass-dod", "semantic")
+    fm.sm2 = SM2(ease=2.5, interval=1, reps=1, next_review=today)
+    p = note_path(fake_brainiac, "2026-05-20-pass-dod", "semantic")
+    write_note(p, fm, "# pass\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# pass\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    new_sm2 = grade_review(conn, fake_brainiac, "2026-05-20-pass-dod", q=5, today=today)
+    # reps=1 → 2; interval = 6 (segunda revisão canônica)
+    assert new_sm2.reps == 2
+    assert new_sm2.interval == 6
+    assert (new_sm2.next_review - today).days == 6
+
+
+def test_review_bumps_access_count_for_consolidation(fake_brainiac, monkeypatch):
+    """DoD: acessos durante review também atualizam access_count/strength."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.models import SM2
+    from brainiac.core.sm2 import grade_review
+    from tests.conftest import make_fm
+
+    today = date(2026, 5, 20)
+    fm = make_fm("2026-05-20-acc-dod", "semantic", access_count=2)
+    fm.sm2 = SM2(ease=2.5, interval=1, reps=0, next_review=today)
+    p = note_path(fake_brainiac, "2026-05-20-acc-dod", "semantic")
+    write_note(p, fm, "# acc\n\nbody")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# acc\n\nbody", str(p.relative_to(fake_brainiac)))
+
+    grade_review(conn, fake_brainiac, "2026-05-20-acc-dod", q=4, today=today)
+
+    row = conn.execute(
+        "SELECT access_count FROM notes WHERE id = ?", ("2026-05-20-acc-dod",)
+    ).fetchone()
+    assert row[0] == 3  # bumped

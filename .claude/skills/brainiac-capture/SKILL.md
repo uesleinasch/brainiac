@@ -27,9 +27,14 @@ Orquestra a criação de uma nota bem-formada via MCP tool `add_note`.
 
 4. **Tags**: 1-3 tags em kebab-case que ajudariam buscar isso depois.
 
-5. **Chamar `add_note`** via MCP com `note_id`, `note_type`, `title`, `body`, `tags`.
+5. **Decidir se entra em estudo (SM-2)**:
+   - Pergunta ao usuário **apenas se a nota for `semantic`** e parecer um conceito memorizável (definição, fato, fórmula): "Quer revisar esta com SM-2? (s/n)"
+   - Se sim: passar `study=True` para `add_note`
+   - Para `episodic` e `working`, padrão é `study=False` — episódicos não são revisados (já tem timestamp narrativo); working ainda crus.
 
-6. **Confirmar ao usuário**: arquivo salvo em `<pasta>/<id>.md`.
+6. **Chamar `add_note`** via MCP com `note_id`, `note_type`, `title`, `body`, `tags`, e `study` quando aplicável.
+
+7. **Confirmar ao usuário**: arquivo salvo em `<pasta>/<id>.md`. Se `study=True`, mencionar: "também adicionada à fila de revisão (próxima: hoje)".
 
 ## Exemplo
 

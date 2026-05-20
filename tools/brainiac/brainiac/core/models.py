@@ -12,6 +12,7 @@ class SM2(BaseModel):
 
     ease: float = Field(default=2.5, ge=1.3)
     interval: int = Field(default=1, ge=1)
+    reps: int = Field(default=0, ge=0)
     next_review: date
 
 
