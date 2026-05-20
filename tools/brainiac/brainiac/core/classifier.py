@@ -13,7 +13,7 @@ _EPISODIC_PATTERNS = [
 
 _SEMANTIC_PATTERNS = [
     r"\bé uma\b", r"\bé um\b",
-    r"\bconsiste em\b", r"\bfunciona\b", r"\bopera\b",
+    r"\bconsiste em\b",
     r"\brefere-se a\b", r"\bsignifica\b",
     r"\bdefine-se\b", r"\bcaracteriza-se\b",
     r"\btrata-se de\b",
