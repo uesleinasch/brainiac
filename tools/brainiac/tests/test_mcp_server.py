@@ -325,3 +325,30 @@ def test_tool_inspect_note_raises_for_unknown_note(fake_brainiac, monkeypatch):
 
     with pytest.raises(KeyError):
         tool_inspect_note("2026-05-20-ghost-insp")
+
+
+def test_tool_add_note_accepts_emotional_weight(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.note import parse_note
+    from brainiac.mcp_server import tool_add_note
+
+    tool_add_note(
+        note_id="2026-05-20-ew-mcp", note_type="semantic",
+        title="x", body="# x\n\nbody",
+        emotional_weight=0.85,
+    )
+    fm, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-ew-mcp.md")
+    assert fm.emotional_weight == 0.85
+
+
+def test_tool_add_note_emotional_weight_defaults_to_0_5(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.note import parse_note
+    from brainiac.mcp_server import tool_add_note
+
+    tool_add_note(
+        note_id="2026-05-20-ew-def", note_type="semantic",
+        title="x", body="# x\n\nbody",
+    )
+    fm, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-ew-def.md")
+    assert fm.emotional_weight == 0.5

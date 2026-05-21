@@ -35,12 +35,14 @@ def tool_add_note(
     body: str,
     tags: list[str] | None = None,
     study: bool = False,
+    emotional_weight: float = 0.5,
 ) -> dict:
     """Create a new note. Body should start with '# title'.
 
     If note_type='working' and shortMemory is full per config, returns a
     structured error with eviction candidates instead of creating the note.
     If study=True, enrolls in SM-2.
+    emotional_weight ∈ [0,1] influences consolidation probability (Phase 7).
     """
     root = find_root()
 
@@ -62,6 +64,7 @@ def tool_add_note(
             }
 
     fm = new_note(note_id=note_id, note_type=note_type, tags=tags or [])
+    fm = fm.model_copy(update={"emotional_weight": emotional_weight})
 
     if study:
         from brainiac.core.sm2 import start_sm2
@@ -210,7 +213,7 @@ async def _list_tools() -> list[Tool]:
     return [
         Tool(
             name="add_note",
-            description="Create a new brainiac note with frontmatter and index it. study=true enrolls in SM-2 spaced repetition.",
+            description="Create a new brainiac note with frontmatter and index it. study=true enrolls in SM-2 spaced repetition. emotional_weight ∈ [0,1] influences probabilistic consolidation (default 0.5).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -220,6 +223,7 @@ async def _list_tools() -> list[Tool]:
                     "body": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "study": {"type": "boolean", "default": False},
+                    "emotional_weight": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.5},
                 },
                 "required": ["note_id", "note_type", "title", "body"],
             },

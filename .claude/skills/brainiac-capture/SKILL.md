@@ -39,9 +39,16 @@ Orquestra a criação de uma nota bem-formada via MCP tool `add_note`.
    - Se sim: passar `study=True` para `add_note`
    - Para `episodic` e `working`, padrão é `study=False` — episódicos não são revisados (já tem timestamp narrativo); working ainda crus.
 
-6. **Chamar `add_note`** via MCP com `note_id`, `note_type`, `title`, `body`, `tags`, e `study` quando aplicável.
+6. **Saliência emocional (opcional)**:
+   - Para captures rotineiras, NÃO pergunte — apenas use default 0.5.
+   - Se o usuário sinalizar importância especial ("isso é crítico", "muito importante"), pergunte:
+     "Essa nota é especialmente importante para você? (baixo/médio/alto/crítico)"
+   - Mapeie: baixo → 0.3, médio → 0.5 (default), alto → 0.8, crítico → 1.0
+   - Passe `emotional_weight=<valor>` para `add_note` quando ≠ 0.5
 
-7. **Confirmar ao usuário**: arquivo salvo em `<pasta>/<id>.md`. Se `study=True`, mencionar: "também adicionada à fila de revisão (próxima: hoje)".
+7. **Chamar `add_note`** via MCP com `note_id`, `note_type`, `title`, `body`, `tags`, e `study`/`emotional_weight` quando aplicáveis.
+
+8. **Confirmar ao usuário**: arquivo salvo em `<pasta>/<id>.md`. Se `study=True`, mencionar: "também adicionada à fila de revisão (próxima: hoje)".
 
 ## Exemplo
 
