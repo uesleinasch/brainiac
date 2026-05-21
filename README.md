@@ -65,12 +65,54 @@ Sem dependências de cloud, banco externo ou UI. Tudo local, em arquivos.
 
 ## Quickstart
 
-### 1. Pré-requisitos
+### Instalação em um comando (Linux)
+
+> **Mantenedores:** quando publicar, substituir `USER` em `scripts/install.sh` e nas URLs abaixo pelo seu handle do GitHub.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/USER/brainiac/main/scripts/install.sh | bash
+```
+
+O instalador faz tudo automaticamente:
+
+- Clona o código pra `~/.local/share/brainiac/`
+- Cria venv + instala o pacote Python
+- Cria as 4 memory dirs em `~/brainiac/` (seu **brainiac root**)
+- Inicializa o índice SQLite
+- Copia as 4 skills pra `~/.claude/skills/`
+- Registra o MCP server no Claude Code via `claude mcp add --scope user`
+
+Variáveis opcionais para customizar paths:
+
+```bash
+BRAINIAC_INSTALL_DIR=~/code/brainiac \
+BRAINIAC_ROOT=~/Documents/brainiac \
+BRAINIAC_REF=v0.1.0 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/USER/brainiac/main/scripts/install.sh)"
+```
+
+Pré-requisitos: `git`, `python3.11+`, `python3-venv`. Em Debian/Ubuntu: `sudo apt install git python3 python3-venv`.
+
+Para **atualizar** depois:
+
+```bash
+bash ~/.local/share/brainiac/scripts/update.sh
+```
+
+Esse comando: faz `git pull`, atualiza o venv, re-sincroniza as skills, e roda `brainiac reindex` (que aplica migrations idempotentes no schema do SQLite).
+
+---
+
+### Instalação manual (passo-a-passo)
+
+Para quem prefere controle total — útil em CI, dev local sem `~/.claude/`, ou personalizações além do que o instalador cobre.
+
+#### 1. Pré-requisitos
 
 - **Python ≥ 3.11** (testado em 3.11 e 3.12)
 - **git**
 
-### 2. Clone
+#### 2. Clone
 
 ```bash
 git clone <repo-url> brainiac
