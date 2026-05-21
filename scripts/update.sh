@@ -41,6 +41,13 @@ if [ "$BEFORE" = "$AFTER" ]; then
     log "Already up to date ($(git rev-parse --short HEAD))"
 else
     log "Updated $(echo $BEFORE | cut -c1-7) → $(echo $AFTER | cut -c1-7)"
+    # Bash slurped the OLD update.sh into memory before the pull; re-exec the
+    # new version so the rest of this run uses the freshly-pulled logic.
+    # Sentinel prevents an infinite loop if the script changes between runs.
+    if [ -z "${BRAINIAC_UPDATE_REEXEC:-}" ]; then
+        log "Re-executing updated script"
+        exec env BRAINIAC_UPDATE_REEXEC=1 bash "$0" "$@"
+    fi
 fi
 
 # --- 2. upgrade Python package ---
