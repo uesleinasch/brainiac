@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 
 def spread_activation(
     seeds: dict[str, float],
@@ -48,9 +50,6 @@ def spread_activation(
             break
 
     return {nid: score for nid, score in a.items() if score >= floor}
-
-
-import sqlite3
 
 
 def load_edges(

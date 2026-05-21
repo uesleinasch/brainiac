@@ -7,7 +7,6 @@ from pathlib import Path
 import sqlite_vec
 
 from brainiac.core import embeddings
-from brainiac.core.graph import NEIGHBOR_DECAY, neighbors_of
 from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 

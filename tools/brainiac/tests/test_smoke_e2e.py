@@ -656,3 +656,37 @@ def test_load_edges_filters_by_note_ids(fake_brainiac, embedder_stub, monkeypatc
     edges = load_edges(conn, note_ids=["2026-05-20-le-a"])
     assert "2026-05-20-le-a" in edges
     assert "2026-05-20-le-b" not in edges  # le-b's outgoing edge excluded
+
+
+def test_spreading_does_not_leak_archived_notes(fake_brainiac, embedder_stub, monkeypatch):
+    """Regression: archived notes reached via spreading must be excluded when include_archived=False."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import add_link, connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    # Seed: relevant, active
+    fm_seed = make_fm("2026-05-20-seed-leak", "semantic")
+    p_seed = note_path(fake_brainiac, "2026-05-20-seed-leak", "semantic")
+    write_note(p_seed, fm_seed, "# seed\n\nDKG protocol distributed keys")
+    index_note(conn, fm_seed, "# seed\n\nDKG protocol distributed keys", str(p_seed.relative_to(fake_brainiac)))
+
+    # Target: archived, would be reached via spreading
+    fm_arc = make_fm("2026-05-20-arc-leak", "semantic")
+    p_arc = note_path(fake_brainiac, "2026-05-20-arc-leak", "semantic")
+    write_note(p_arc, fm_arc, "# arc\n\narchived content")
+    index_note(conn, fm_arc, "# arc\n\narchived content", str(p_arc.relative_to(fake_brainiac)), archived=True)
+
+    add_link(conn, fake_brainiac, "2026-05-20-seed-leak", "2026-05-20-arc-leak")
+
+    # Default include_archived=False: archived must NOT appear
+    hits = recall(conn, "DKG protocol distributed keys", k=10)
+    hit_ids = [h["id"] for h in hits]
+    assert "2026-05-20-arc-leak" not in hit_ids
+
+    # Explicit include_archived=True: archived MAY appear
+    hits_inc = recall(conn, "DKG protocol distributed keys", k=10, include_archived=True)
+    hit_ids_inc = [h["id"] for h in hits_inc]
+    assert "2026-05-20-arc-leak" in hit_ids_inc
