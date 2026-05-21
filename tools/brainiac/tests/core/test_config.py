@@ -111,3 +111,15 @@ def test_config_reads_spreading_fields_from_toml(fake_brainiac):
     assert cfg.spreading_decay == 0.3
     assert cfg.spreading_epsilon == 0.001
     assert cfg.spreading_floor == 0.1
+
+
+def test_config_has_consolidation_learning_rate_default(fake_brainiac):
+    from brainiac.core.config import load_config
+    cfg = load_config(fake_brainiac)
+    assert cfg.consolidation_learning_rate == 0.5
+
+
+def test_config_has_consolidation_probability_threshold_default(fake_brainiac):
+    from brainiac.core.config import load_config
+    cfg = load_config(fake_brainiac)
+    assert cfg.consolidation_probability_threshold == 0.6

@@ -19,6 +19,9 @@ class Config:
     spreading_decay: float = 0.5
     spreading_epsilon: float = 0.01
     spreading_floor: float = 0.05
+    # Probabilistic consolidation (Phase 7)
+    consolidation_learning_rate: float = 0.5
+    consolidation_probability_threshold: float = 0.6
 
 
 def load_config(root: Path) -> Config:
