@@ -1,0 +1,23 @@
+name: ❓ Pergunta / dúvida
+description: Algo não está claro? Pergunte aqui.
+title: "[?]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use issues para perguntas **específicas** sobre o código, comportamento, ou design. Para discussões mais abertas, prefira [GitHub Discussions](../../discussions) quando habilitado.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Pergunta
+      placeholder: "Como funciona o cálculo de novelty quando há menos de 3 vizinhos no corpus?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: O que você está tentando fazer? Já leu o README + docstrings relevantes?

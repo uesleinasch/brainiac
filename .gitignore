@@ -32,5 +32,9 @@ memoryTransfer/archive/
 CLAUDE.md
 docs/superpowers/
 
+# Override global gitignore that ignores /docs/ — we ship docs/MAINTAINING.md
+!docs/
+!docs/MAINTAINING.md
+
 # Loose scratch files
 *.html

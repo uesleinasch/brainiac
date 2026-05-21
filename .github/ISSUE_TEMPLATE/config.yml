@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentação
+    url: https://github.com/uesleinasch/brainiac/blob/main/README.md
+    about: Leia o README primeiro — Quickstart, configuração, troubleshooting.
+  - name: 🤝 Como contribuir
+    url: https://github.com/uesleinasch/brainiac/blob/main/CONTRIBUTING.md
+    about: Setup do dev env, TDD, conventional commits, processo de PR.
+  - name: 🔒 Reportar vulnerabilidade
+    url: https://github.com/uesleinasch/brainiac/security/advisories/new
+    about: Para falhas de segurança, use security advisories (privado), não issues públicas.

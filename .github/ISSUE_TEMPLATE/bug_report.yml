@@ -1,0 +1,82 @@
+name: 🐛 Bug report
+description: Reporte algo que não funciona como esperado
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por reportar! Quanto mais detalhes você fornecer, mais rápido conseguimos diagnosticar.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o comportamento observado e o esperado.
+      placeholder: |
+        - **Comportamento esperado:**
+        - **Comportamento observado:**
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Passos para reproduzir
+      description: Sequência mínima de comandos / passos que dispara o bug.
+      placeholder: |
+        1. `brainiac reindex`
+        2. `brainiac state 2026-05-20-foo`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / Traceback
+      description: Cole a saída completa do terminal (especialmente tracebacks Python).
+      render: shell
+
+  - type: input
+    id: brainiac-version
+    attributes:
+      label: Versão do brainiac
+      description: Saída de `pip show brainiac | grep Version` ou `git rev-parse --short HEAD`
+      placeholder: "0.1.0 ou commit-sha"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Versão do Python
+      description: Saída de `python3 --version`
+      placeholder: "3.11.x"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Sistema operacional
+      placeholder: "Ubuntu 24.04 / Fedora 40 / macOS 14.4 / ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Conteúdo do brainiac.toml (se customizado)
+      description: Cole o conteúdo se você customizou defaults.
+      render: toml
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Verifiquei que não há issue duplicada
+          required: true
+        - label: Estou usando a versão mais recente do `main` (ou versão indicada acima)
+          required: true

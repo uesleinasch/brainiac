@@ -426,6 +426,14 @@ python3.11 -m venv .venv
 
 **State atual:** 340 testes verdes. Cobertura ≥ 95% nos módulos novos (`novelty`, `sensory`, `states`).
 
+## Comunidade e governança
+
+- 📖 [CONTRIBUTING.md](CONTRIBUTING.md) — como contribuir (setup, TDD, conventional commits)
+- 📜 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant v2.1
+- 🔒 [SECURITY.md](SECURITY.md) — política de segurança e como reportar vulnerabilidades
+- 📝 [CHANGELOG.md](CHANGELOG.md) — histórico de versões
+- 🛠️ [docs/MAINTAINING.md](docs/MAINTAINING.md) — guia para mantenedores (branch protection, release process)
+
 ## Licença
 
 [MIT](LICENSE) © Ueslei Nascimento

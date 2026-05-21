@@ -1,0 +1,54 @@
+name: ✨ Feature request
+description: Sugira uma nova funcionalidade ou melhoria
+title: "[feat]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de abrir, considere se a ideia se encaixa no escopo do projeto: brainiac é um sistema de memória cognitiva local em Markdown + SQLite. Ideias fora desse escopo (UI web, sync em nuvem, etc.) provavelmente serão recusadas.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Que problema você está tentando resolver?
+      description: Descreva o cenário de uso ou a dor concreta — não a solução.
+      placeholder: "Hoje eu não consigo X porque o brainiac Y. Isso me obriga a Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solução proposta
+      description: O que você gostaria de ver implementado? Quanto mais específico, melhor.
+      placeholder: |
+        - novo MCP tool `foo` que faz X
+        - novo CLI command `brainiac bar`
+        - novo campo `baz` no frontmatter
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      description: O que você já tentou? Por que essas alternativas não bastam?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Escopo aproximado
+      multiple: false
+      options:
+        - Bug fix (~10 linhas)
+        - Feature pequena (~100 linhas, 1 módulo)
+        - Feature média (~500 linhas, 1-2 módulos novos)
+        - Feature grande (nova "phase" no roadmap)
+        - Não sei
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Referências (papers, blog posts, projetos similares)
+      description: Algoritmo, paper acadêmico, projeto open-source que faz algo parecido?

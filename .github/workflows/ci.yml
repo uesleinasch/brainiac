@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs when a new push hits the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: tools/brainiac/pyproject.toml
+
+      - name: Install package
+        working-directory: tools/brainiac
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run test suite (excluding slow embeddings test)
+        working-directory: tools/brainiac
+        run: pytest --ignore=tests/core/test_embeddings.py --no-cov
+
+      - name: Coverage report
+        if: matrix.python == '3.12'
+        working-directory: tools/brainiac
+        run: |
+          pytest --ignore=tests/core/test_embeddings.py \
+            --cov=brainiac --cov-report=term --cov-report=xml --cov-fail-under=80
+
+      - name: Upload coverage to artifacts
+        if: matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: tools/brainiac/coverage.xml
+
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Check
+        working-directory: tools/brainiac
+        run: ruff check brainiac tests
+
+  install-script:
+    name: scripts/install.sh syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bash syntax check
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/update.sh
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts

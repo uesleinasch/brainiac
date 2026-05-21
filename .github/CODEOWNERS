@@ -1,0 +1,13 @@
+# CODEOWNERS — define reviewers automáticos.
+# Documentação: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Sintaxe: pattern  @owner1 @owner2
+
+# Catch-all: tudo precisa de revisão do mantenedor principal
+*       @uesleinasch
+
+# Configs críticas (CI, scripts, deps): atenção redobrada
+/.github/             @uesleinasch
+/scripts/             @uesleinasch
+/tools/brainiac/pyproject.toml  @uesleinasch
+/LICENSE              @uesleinasch
