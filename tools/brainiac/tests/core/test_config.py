@@ -87,3 +87,27 @@ def test_config_reads_actr_fields_from_toml(fake_brainiac):
     assert cfg.actr_decay == 0.3
     assert cfg.actr_recall_hit_weight == 0.4
     assert cfg.actr_link_in_weight == 0.6
+
+
+def test_config_has_spreading_defaults(fake_brainiac):
+    from brainiac.core.config import load_config
+    cfg = load_config(fake_brainiac)
+    assert cfg.spreading_max_hops == 3
+    assert cfg.spreading_decay == 0.5
+    assert cfg.spreading_epsilon == 0.01
+    assert cfg.spreading_floor == 0.05
+
+
+def test_config_reads_spreading_fields_from_toml(fake_brainiac):
+    from brainiac.core.config import load_config
+
+    (fake_brainiac / "brainiac.toml").write_text(
+        "spreading_max_hops = 5\nspreading_decay = 0.3\n"
+        "spreading_epsilon = 0.001\nspreading_floor = 0.1\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(fake_brainiac)
+    assert cfg.spreading_max_hops == 5
+    assert cfg.spreading_decay == 0.3
+    assert cfg.spreading_epsilon == 0.001
+    assert cfg.spreading_floor == 0.1
