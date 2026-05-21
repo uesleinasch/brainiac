@@ -2,17 +2,17 @@
 # Brainiac — one-line installer for Linux
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/USER/brainiac/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/uesleinasch/brainiac/main/scripts/install.sh | bash
 #
 # Environment overrides:
-#   BRAINIAC_REPO         Git URL to clone from (default: https://github.com/USER/brainiac.git)
+#   BRAINIAC_REPO         Git URL to clone from (default: https://github.com/uesleinasch/brainiac.git)
 #   BRAINIAC_INSTALL_DIR  Where to clone the code (default: ~/.local/share/brainiac)
 #   BRAINIAC_ROOT         Where your notes live (default: ~/brainiac)
 #   BRAINIAC_REF          Branch/tag/commit to install (default: main)
 
 set -euo pipefail
 
-REPO_URL="${BRAINIAC_REPO:-https://github.com/USER/brainiac.git}"
+REPO_URL="${BRAINIAC_REPO:-https://github.com/uesleinasch/brainiac.git}"
 INSTALL_DIR="${BRAINIAC_INSTALL_DIR:-$HOME/.local/share/brainiac}"
 ROOT_DIR="${BRAINIAC_ROOT:-$HOME/brainiac}"
 REF="${BRAINIAC_REF:-main}"

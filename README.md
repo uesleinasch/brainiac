@@ -67,10 +67,8 @@ Sem dependências de cloud, banco externo ou UI. Tudo local, em arquivos.
 
 ### Instalação em um comando (Linux)
 
-> **Mantenedores:** quando publicar, substituir `USER` em `scripts/install.sh` e nas URLs abaixo pelo seu handle do GitHub.
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/USER/brainiac/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/uesleinasch/brainiac/main/scripts/install.sh | bash
 ```
 
 O instalador faz tudo automaticamente:
@@ -88,7 +86,7 @@ Variáveis opcionais para customizar paths:
 BRAINIAC_INSTALL_DIR=~/code/brainiac \
 BRAINIAC_ROOT=~/Documents/brainiac \
 BRAINIAC_REF=v0.1.0 \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/USER/brainiac/main/scripts/install.sh)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/uesleinasch/brainiac/main/scripts/install.sh)"
 ```
 
 Pré-requisitos: `git`, `python3.11+`, `python3-venv`. Em Debian/Ubuntu: `sudo apt install git python3 python3-venv`.
