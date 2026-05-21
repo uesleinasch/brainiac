@@ -14,6 +14,11 @@ class Config:
     actr_decay: float = 0.5
     actr_recall_hit_weight: float = 0.3
     actr_link_in_weight: float = 0.5
+    # Spreading activation (Phase 6)
+    spreading_max_hops: int = 3
+    spreading_decay: float = 0.5
+    spreading_epsilon: float = 0.01
+    spreading_floor: float = 0.05
 
 
 def load_config(root: Path) -> Config:

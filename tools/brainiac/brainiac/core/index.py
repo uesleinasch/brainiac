@@ -7,7 +7,6 @@ from pathlib import Path
 import sqlite_vec
 
 from brainiac.core import embeddings
-from brainiac.core.graph import NEIGHBOR_DECAY, neighbors_of
 from brainiac.core.models import NoteFrontmatter
 from brainiac.core.note import parse_note, write_note
 
@@ -385,33 +384,56 @@ def recall(
             "origin": "semantic",
         }
 
-    for s in seeds:
-        seed_score = float(s["score"])
-        for dst, meta in neighbors_of(conn, s["id"]).items():
-            neighbor_score = seed_score * NEIGHBOR_DECAY * float(meta["weight"])
-            if dst in scored:
-                if scored[dst]["origin"] == "semantic":
-                    scored[dst]["origin"] = "both"
-                scored[dst]["score"] = max(scored[dst]["score"], neighbor_score)
-            else:
-                row = conn.execute(
-                    "SELECT path, type, archived FROM notes WHERE id = ?", (dst,)
-                ).fetchone()
-                if row is None:
-                    continue
-                if not include_archived and row[2] == 1:
-                    continue
-                title_row = conn.execute(
-                    "SELECT title FROM notes_fts WHERE id = ?", (dst,)
-                ).fetchone()
-                scored[dst] = {
-                    "id": dst,
-                    "path": row[0],
-                    "type": row[1],
-                    "title": title_row[0] if title_row else "",
-                    "score": neighbor_score,
-                    "origin": meta["kind"],
-                }
+    # Phase 6: N-hop spreading activation (replaces Phase 1's 1-hop)
+    from brainiac.core.config import load_config
+    from brainiac.core.paths import find_root
+    from brainiac.core.spreading import load_edges, spread_activation
+
+    try:
+        config = load_config(find_root())
+    except Exception:
+        from brainiac.core.config import Config
+        config = Config()
+
+    # Ensure seeds always have enough activation to propagate (cosine may be 0
+    # in orthogonal/near-orthogonal embeddings, which would silence spreading).
+    seed_dict = {
+        s["id"]: max(float(s["score"]), config.spreading_floor)
+        for s in seeds
+    }
+    edges = load_edges(conn)
+    spread_result = spread_activation(
+        seed_dict, edges,
+        max_hops=config.spreading_max_hops,
+        decay=config.spreading_decay,
+        epsilon=config.spreading_epsilon,
+        floor=config.spreading_floor,
+    )
+
+    for nid, score in spread_result.items():
+        if nid in scored:
+            scored[nid]["score"] = max(scored[nid]["score"], score)
+            if scored[nid]["origin"] == "semantic":
+                scored[nid]["origin"] = "both"
+        else:
+            row = conn.execute(
+                "SELECT path, type, archived FROM notes WHERE id = ?", (nid,)
+            ).fetchone()
+            if row is None:
+                continue
+            if not include_archived and row[2] == 1:
+                continue
+            title_row = conn.execute(
+                "SELECT title FROM notes_fts WHERE id = ?", (nid,)
+            ).fetchone()
+            scored[nid] = {
+                "id": nid,
+                "path": row[0],
+                "type": row[1],
+                "title": title_row[0] if title_row else "",
+                "score": score,
+                "origin": "implicit",  # came via spreading
+            }
 
     # Phase 5: combine semantic score with ACT-R activation (z-score normalized per query)
     import statistics
