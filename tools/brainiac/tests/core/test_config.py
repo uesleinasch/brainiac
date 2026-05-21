@@ -123,3 +123,9 @@ def test_config_has_consolidation_probability_threshold_default(fake_brainiac):
     from brainiac.core.config import load_config
     cfg = load_config(fake_brainiac)
     assert cfg.consolidation_probability_threshold == 0.6
+
+
+def test_config_has_sensory_ttl_default(fake_brainiac):
+    from brainiac.core.config import load_config
+    cfg = load_config(fake_brainiac)
+    assert cfg.sensory_ttl_minutes == 5

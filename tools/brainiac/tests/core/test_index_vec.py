@@ -307,6 +307,23 @@ def test_connect_adds_novelty_score_column(fake_brainiac):
     assert "novelty_score" in cols
 
 
+def test_connect_creates_sensory_buffer_table(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    conn = connect(index_db_path(fake_brainiac))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(sensory_buffer)").fetchall()]
+    expected = {"id", "title", "body", "created", "expires_at", "proposed_type", "proposed_id"}
+    assert set(cols) == expected
+
+
+def test_connect_creates_sensory_expires_index(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    conn = connect(index_db_path(fake_brainiac))
+    indexes = [r[1] for r in conn.execute("PRAGMA index_list(sensory_buffer)").fetchall()]
+    assert "idx_sensory_expires" in indexes
+
+
 def test_recall_uses_spreading_activation_for_2_hops(fake_brainiac, embedder_stub):
     """Co-activation: nó a 2 hops da seed aparece via spreading."""
     from brainiac.core.index import add_link, connect, index_note, recall
