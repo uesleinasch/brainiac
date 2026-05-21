@@ -212,3 +212,69 @@ def test_transition_probabilities_working_note(fake_brainiac):
     assert "long_term" in result["transitions"]
     assert 0.0 <= result["transitions"]["long_term"]["probability"] <= 1.0
     assert "reason" in result["transitions"]["long_term"]
+
+
+def test_transition_sensory_to_working_uses_commit_sensory_error(fake_brainiac):
+    """Direct transition_note for SENSORY → WORKING is not allowed; must use commit_sensory."""
+    from datetime import datetime, timezone
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.sensory import add_sensory
+    from brainiac.core.states import NoteState, transition_note
+
+    conn = connect(index_db_path(fake_brainiac))
+    sid = add_sensory(conn, body="x", now=datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc))
+    with pytest.raises(ValueError, match="commit_sensory"):
+        transition_note(conn, fake_brainiac, sid, NoteState.WORKING)
+
+
+def test_transition_probabilities_sensory(fake_brainiac):
+    from datetime import datetime, timezone
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.sensory import add_sensory
+    from brainiac.core.states import transition_probabilities
+
+    conn = connect(index_db_path(fake_brainiac))
+    sid = add_sensory(conn, body="x", now=datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc))
+    result = transition_probabilities(conn, sid)
+    assert result["current_state"] == "sensory"
+    assert result["transitions"]["working"]["probability"] == 1.0
+
+
+def test_transition_probabilities_long_term_uses_strength(fake_brainiac):
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.states import transition_probabilities
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-lt-prob", "semantic", strength=0.7)
+    p = note_path(fake_brainiac, "2026-05-20-lt-prob", "semantic")
+    write_note(p, fm, "# x")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x", str(p.relative_to(fake_brainiac)))
+
+    result = transition_probabilities(conn, "2026-05-20-lt-prob")
+    assert result["current_state"] == "long_term"
+    # P_forget = 1 - 0.7 = 0.3
+    assert result["transitions"]["archived"]["probability"] == pytest.approx(0.3)
+
+
+def test_transition_probabilities_archived_returns_manual(fake_brainiac):
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.states import transition_probabilities
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-arc-prob", "semantic")
+    p = note_path(fake_brainiac, "2026-05-20-arc-prob", "semantic")
+    write_note(p, fm, "# x")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x", str(p.relative_to(fake_brainiac)), archived=True)
+
+    result = transition_probabilities(conn, "2026-05-20-arc-prob")
+    assert result["current_state"] == "archived"
+    assert result["transitions"]["long_term"]["probability"] is None
+    assert "manual" in result["transitions"]["long_term"]["reason"].lower()

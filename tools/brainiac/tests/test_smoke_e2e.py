@@ -787,3 +787,97 @@ def test_consolidate_check_returns_probability_via_mcp(fake_brainiac, monkeypatc
     cand = next((c for c in candidates if c["id"] == "2026-05-18-mcp-prob"), None)
     assert cand is not None
     assert "consolidation_probability" in cand
+
+
+# --- DoD Phase 8 ---
+
+
+def test_sensory_to_working_full_cycle(fake_brainiac, monkeypatch):
+    """DoD: capture sensory → list → commit → real note exists in working."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.states import NoteState, current_state
+    from brainiac.mcp_server import tool_capture_sensory, tool_commit_sensory, tool_list_sensory
+
+    s = tool_capture_sensory(body="# Test\n\nrascunho", title="Test")
+    sid = s["id"]
+
+    entries = tool_list_sensory()
+    assert any(e["id"] == sid for e in entries)
+
+    tool_commit_sensory(sensory_id=sid, note_type="working", final_id="2026-05-20-cycle")
+    assert (fake_brainiac / "shortMemory" / "2026-05-20-cycle.md").exists()
+
+    conn = connect(index_db_path(fake_brainiac))
+    assert current_state(conn, "2026-05-20-cycle") == NoteState.WORKING
+
+
+def test_state_machine_enforces_markov(fake_brainiac, monkeypatch):
+    """DoD: working → archived (skip long_term) is rejected."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    import pytest
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.states import NoteState, transition_note
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-mk", "working")
+    p = note_path(fake_brainiac, "2026-05-20-mk", "working")
+    write_note(p, fm, "# x")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# x", str(p.relative_to(fake_brainiac)))
+
+    with pytest.raises(ValueError, match="invalid transition"):
+        transition_note(conn, fake_brainiac, "2026-05-20-mk", NoteState.ARCHIVED)
+
+
+def test_state_archived_to_long_term_resurrects(fake_brainiac, monkeypatch):
+    """DoD: archived can be resurrected to long_term."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.decay import archive_note
+    from brainiac.core.index import connect, index_note
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from brainiac.core.states import NoteState, current_state, transition_note
+    from tests.conftest import make_fm
+
+    fm = make_fm("2026-05-20-resurrect", "semantic")
+    p = note_path(fake_brainiac, "2026-05-20-resurrect", "semantic")
+    write_note(p, fm, "# r")
+    conn = connect(index_db_path(fake_brainiac))
+    index_note(conn, fm, "# r", str(p.relative_to(fake_brainiac)))
+
+    archive_note(conn, fake_brainiac, "2026-05-20-resurrect")
+    assert current_state(conn, "2026-05-20-resurrect") == NoteState.ARCHIVED
+
+    transition_note(conn, fake_brainiac, "2026-05-20-resurrect", NoteState.LONG_TERM)
+    assert current_state(conn, "2026-05-20-resurrect") == NoteState.LONG_TERM
+
+
+def test_note_state_returns_calibrated_probabilities(fake_brainiac, monkeypatch):
+    """DoD: tool_note_state reflects current metrics in probability."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+    from brainiac.core.paths import index_db_path
+    from brainiac.mcp_server import tool_add_note, tool_note_state
+
+    tool_add_note(
+        note_id="2026-05-20-prob-note", note_type="working",
+        title="x", body="# x", emotional_weight=1.0,
+    )
+    conn = connect(index_db_path(fake_brainiac))
+    conn.execute(
+        "UPDATE notes SET access_count = 5 WHERE id = ?",
+        ("2026-05-20-prob-note",),
+    )
+    conn.commit()
+    cache_novelty(conn, "2026-05-20-prob-note", 1.0)
+
+    result = tool_note_state(note_id="2026-05-20-prob-note")
+    assert result["current_state"] == "working"
+    p_cons = result["transitions"]["long_term"]["probability"]
+    # P_cons = 1 - exp(-0.5 * 5 * 1.0 * 1.0) ≈ 0.918
+    assert p_cons > 0.6
