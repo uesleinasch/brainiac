@@ -55,7 +55,7 @@ Cada nota é um `.md` com frontmatter YAML carregando metadata cognitiva (`type`
 ## Stack
 
 - **Python ≥ 3.11** (`tomllib`, `math`, `uuid`, `enum` stdlib)
-- **MCP** (`mcp>=1.0`) — servidor stdio que Claude Code conecta
+- **MCP** (`mcp>=1.0`) — servidor stdio para clientes MCP-compatíveis (Claude Code, etc.)
 - **SQLite + sqlite-vec** — FTS5 + índice vetorial em um único arquivo
 - **sentence-transformers** — `paraphrase-multilingual-MiniLM-L12-v2` (384-dim, pt-BR)
 - **Pydantic v2** — schema strict do frontmatter
@@ -229,7 +229,12 @@ transition_note(note_id="2026-05-20-foo", target_state="archived")
 | 7 — Consolidação Probabilística | `emotional_weight` + `novelty` + 3º caminho de promoção |
 | 8 — Atkinson-Shiffrin States | `sensory_buffer` + 4 estados + Markov enforcement + transition probabilities |
 
-Algoritmos referência: spec em [`docs/superpowers/specs/`](docs/superpowers/specs/); planos por fase em [`docs/superpowers/plans/`](docs/superpowers/plans/).
+Algoritmos referência:
+- **Ebbinghaus forgetting curve** — `R = e^(-t/S)`, com `S` aumentando a cada acesso
+- **ACT-R activation** — `A(t) = ln Σᵢ tᵢ^(-d)` sobre histórico de acessos (Anderson 1996)
+- **Spreading activation** — propagação por arestas no grafo com decay multiplicativo (Collins & Loftus 1975)
+- **SuperMemo-2** — algoritmo de Piotr Wozniak para revisão espaçada
+- **Atkinson-Shiffrin model** — multi-store model com 4 estados de memória
 
 ## Desenvolvimento
 

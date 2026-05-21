@@ -1,9 +1,3 @@
-# Brainiac-specific overrides — neutralize global gitignore for files
-# that ARE part of this project (this repo is about the AI workflow itself)
-!CLAUDE.md
-!/docs/
-!/.claude/
-
 # Python build/test artifacts
 .venv/
 __pycache__/
@@ -20,3 +14,23 @@ dist/
 memoryTransfer/index.sqlite
 memoryTransfer/index.sqlite-shm
 memoryTransfer/index.sqlite-wal
+
+# Brainiac runtime content — your personal notes are NEVER committed.
+# Memory dirs ship empty; users fill them locally.
+longMemory/**/*.md
+shortMemory/**/*.md
+semanticMemory/**/*.md
+memoryTransfer/logs/
+memoryTransfer/archive/
+
+# Local agent / IDE configs
+.claude/settings.local.json
+.idea/
+.vscode/
+
+# Internal docs (not part of the open-source release)
+CLAUDE.md
+docs/superpowers/
+
+# Loose scratch files
+*.html
