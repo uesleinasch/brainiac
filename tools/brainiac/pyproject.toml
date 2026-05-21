@@ -31,7 +31,7 @@ dependencies = [
     "python-frontmatter>=1.1",
     "click>=8",
     "sentence-transformers>=2.7",
-    "sqlite-vec>=0.1.6",
+    "sqlite-vec>=0.1.9",
     "numpy>=1.26",
 ]
 
