@@ -37,18 +37,28 @@ err()  { printf '%sxx%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 log "Checking prerequisites"
 
 command -v git >/dev/null 2>&1 || err "git not found — please install git first"
-command -v python3 >/dev/null 2>&1 || err "python3 not found — please install Python 3.11+"
 
-PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PY_MAJOR=$(echo "$PY_VER" | cut -d. -f1)
-PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; }; then
-    err "Python 3.11+ required (found $PY_VER)"
-fi
+# Ubuntu 22.04 ships python3 → 3.10 by default but users often install 3.11 alongside;
+# prefer the highest versioned interpreter that satisfies requires-python = ">=3.11".
+PYTHON=""
+PY_VER=""
+for candidate in python3.13 python3.12 python3.11 python3; do
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    ver=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || continue
+    major=$(echo "$ver" | cut -d. -f1)
+    minor=$(echo "$ver" | cut -d. -f2)
+    if [ "$major" -eq 3 ] && [ "$minor" -ge 11 ]; then
+        PYTHON="$candidate"
+        PY_VER="$ver"
+        break
+    fi
+done
 
-# Detect venv module
-if ! python3 -c 'import venv' 2>/dev/null; then
-    err "python3-venv not installed — try: sudo apt install python3-venv (Debian/Ubuntu)"
+[ -n "$PYTHON" ] || err "Python 3.11+ not found — install with: sudo apt install python3.11 python3.11-venv"
+log "Using $PYTHON ($PY_VER)"
+
+if ! "$PYTHON" -c 'import venv' 2>/dev/null; then
+    err "venv module missing — try: sudo apt install ${PYTHON}-venv (Debian/Ubuntu)"
 fi
 
 # --- 2. clone (or refuse if exists) ---
@@ -65,7 +75,7 @@ git clone --depth=1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
 # --- 3. venv + install ---
 log "Creating Python venv + installing brainiac"
 cd "$INSTALL_DIR/tools/brainiac"
-python3 -m venv .venv
+"$PYTHON" -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -e .
 
