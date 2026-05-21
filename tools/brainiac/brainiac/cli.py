@@ -241,6 +241,54 @@ def inspect(note_id: str) -> None:
 
 
 @main.command()
+@click.argument("note_id")
+def state(note_id: str) -> None:
+    """Show current state + transition probabilities for a note."""
+    from brainiac.core.states import transition_probabilities
+
+    root = find_root()
+    conn = connect(index_db_path(root))
+    try:
+        result = transition_probabilities(conn, note_id)
+    except KeyError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(f"id: {note_id}")
+    click.echo(f"current_state: {result['current_state']}")
+    click.echo("")
+    click.echo("Transition probabilities:")
+    for target, info in result["transitions"].items():
+        prob = info["probability"]
+        prob_str = f"{prob:.3f}" if prob is not None else "manual"
+        click.echo(f"  → {target}: {prob_str}  ({info['reason']})")
+
+
+@main.group()
+def sensory() -> None:
+    """Manage sensory buffer (transient drafts)."""
+
+
+@sensory.command("list")
+def sensory_list() -> None:
+    """List active sensory buffer entries."""
+    from brainiac.core.sensory import list_sensory
+
+    root = find_root()
+    conn = connect(index_db_path(root))
+    entries = list_sensory(conn)
+    if not entries:
+        click.echo("Sensory buffer is empty.")
+        return
+
+    click.echo(f"{len(entries)} active sensory entries:")
+    for e in entries:
+        title = e["title"] or "(untitled)"
+        click.echo(f"  {e['id']}  expires={e['expires_at']}  {title}")
+        body_preview = e["body"][:80].replace("\n", " ")
+        click.echo(f"    body: {body_preview}...")
+
+
+@main.command()
 def mcp() -> None:
     """Start the MCP stdio server."""
     from brainiac.mcp_server import run_server

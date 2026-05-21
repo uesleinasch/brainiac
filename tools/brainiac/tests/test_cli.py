@@ -338,3 +338,44 @@ def test_stats_command_shows_event_count_and_top_activations(fake_brainiac, monk
     assert result.exit_code == 0
     assert "events" in result.output.lower()
     assert "activation" in result.output.lower()
+
+
+class TestStateCommand:
+    def test_state_command_outputs_state_and_probabilities(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.index import connect, index_note
+        from brainiac.core.note import write_note
+        from brainiac.core.paths import index_db_path, note_path
+        from tests.conftest import make_fm
+
+        fm = make_fm("2026-05-20-st", "working")
+        p = note_path(fake_brainiac, "2026-05-20-st", "working")
+        write_note(p, fm, "# st")
+        conn = connect(index_db_path(fake_brainiac))
+        index_note(conn, fm, "# st", str(p.relative_to(fake_brainiac)))
+
+        result = CliRunner().invoke(main, ["state", "2026-05-20-st"])
+        assert result.exit_code == 0
+        assert "working" in result.output.lower()
+        assert "long_term" in result.output.lower()
+
+
+class TestSensoryListCommand:
+    def test_sensory_list_empty(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        result = CliRunner().invoke(main, ["sensory", "list"])
+        assert result.exit_code == 0
+        assert "empty" in result.output.lower() or "0" in result.output
+
+    def test_sensory_list_shows_entries(self, fake_brainiac, monkeypatch):
+        monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+        from brainiac.core.index import connect
+        from brainiac.core.paths import index_db_path
+        from brainiac.core.sensory import add_sensory
+
+        conn = connect(index_db_path(fake_brainiac))
+        add_sensory(conn, body="primeiro rascunho", title="t1")
+
+        result = CliRunner().invoke(main, ["sensory", "list"])
+        assert result.exit_code == 0
+        assert "primeiro rascunho" in result.output or "t1" in result.output
