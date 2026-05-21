@@ -1,10 +1,11 @@
 """MCP server exposing brainiac tools via stdio.
 
-Tools (12): add_note, recall, get_note, link, list_recent,
+Tools (17): add_note, recall, get_note, link, list_recent,
             consolidate_check, forget,
             review_queue, grade_review, start_review,
-            working_status,
-            inspect_note
+            working_status, inspect_note,
+            capture_sensory, list_sensory, commit_sensory,
+            transition_note, note_state
 """
 
 import asyncio
@@ -203,6 +204,61 @@ def tool_inspect_note(note_id: str) -> dict:
     }
 
 
+def tool_capture_sensory(
+    body: str,
+    title: str | None = None,
+    proposed_type: str | None = None,
+) -> dict:
+    """Insert a transient sensory draft. TTL ~5 minutes."""
+    from brainiac.core.sensory import add_sensory
+    root = find_root()
+    conn = connect(index_db_path(root))
+    sid = add_sensory(conn, body=body, title=title, proposed_type=proposed_type)
+    return {"id": sid, "body": body, "title": title}
+
+
+def tool_list_sensory(include_expired: bool = False) -> list[dict]:
+    """List sensory buffer entries (active by default)."""
+    from brainiac.core.sensory import list_sensory
+    root = find_root()
+    conn = connect(index_db_path(root))
+    return list_sensory(conn, include_expired=include_expired)
+
+
+def tool_commit_sensory(sensory_id: str, note_type: str, final_id: str) -> dict:
+    """Promote sensory draft to a working/semantic/episodic note."""
+    from brainiac.core.sensory import commit_sensory
+    root = find_root()
+    conn = connect(index_db_path(root))
+    fid = commit_sensory(conn, root, sensory_id, note_type=note_type, final_id=final_id)
+    return {"id": fid, "type": note_type}
+
+
+def tool_transition_note(
+    note_id: str,
+    target_state: str,
+    target_type: str = "semantic",
+) -> dict:
+    """Transition note to target_state. target_type only used for working→long_term."""
+    from brainiac.core.states import NoteState, transition_note
+    root = find_root()
+    conn = connect(index_db_path(root))
+    try:
+        ts = NoteState(target_state)
+    except ValueError:
+        raise ValueError(f"Unknown state: {target_state}")
+    new_state = transition_note(conn, root, note_id, ts, target_type=target_type)
+    return {"id": note_id, "new_state": new_state.value}
+
+
+def tool_note_state(note_id: str) -> dict:
+    """Return current state + transition probabilities for a note."""
+    from brainiac.core.states import transition_probabilities
+    root = find_root()
+    conn = connect(index_db_path(root))
+    return transition_probabilities(conn, note_id)
+
+
 # --- MCP server plumbing ---
 
 server = Server("brainiac")
@@ -353,6 +409,76 @@ async def _list_tools() -> list[Tool]:
                 "required": ["note_id"],
             },
         ),
+        Tool(
+            name="capture_sensory",
+            description=(
+                "Insere um rascunho transiente no sensory_buffer (TTL ~5 min). "
+                "Use para ideias cruas que ainda podem virar nota real."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "body": {"type": "string"},
+                    "title": {"type": "string"},
+                    "proposed_type": {"type": "string", "enum": ["episodic", "semantic", "working"]},
+                },
+                "required": ["body"],
+            },
+        ),
+        Tool(
+            name="list_sensory",
+            description="Lista rascunhos sensory ativos (não expirados). include_expired=true mostra todos.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_expired": {"type": "boolean", "default": False},
+                },
+            },
+        ),
+        Tool(
+            name="commit_sensory",
+            description=(
+                "Promove um rascunho sensory para nota real (working/semantic/episodic). "
+                "Deleta o rascunho do buffer."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "sensory_id": {"type": "string"},
+                    "note_type": {"type": "string", "enum": ["episodic", "semantic", "working"]},
+                    "final_id": {"type": "string", "description": "Formato: YYYY-MM-DD-slug"},
+                },
+                "required": ["sensory_id", "note_type", "final_id"],
+            },
+        ),
+        Tool(
+            name="transition_note",
+            description=(
+                "Transiciona uma nota entre estados (sensory → working → long_term ↔ archived). "
+                "Enforça Markov chain: rejeita pulos inválidos. target_type só usado em working→long_term."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "note_id": {"type": "string"},
+                    "target_state": {"type": "string", "enum": ["sensory", "working", "long_term", "archived"]},
+                    "target_type": {"type": "string", "enum": ["semantic", "episodic"], "default": "semantic"},
+                },
+                "required": ["note_id", "target_state"],
+            },
+        ),
+        Tool(
+            name="note_state",
+            description=(
+                "Retorna o estado atual + probabilidades de transição calibradas "
+                "(P_cons via Phase 7, P_forget via Ebbinghaus, etc.)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"note_id": {"type": "string"}},
+                "required": ["note_id"],
+            },
+        ),
     ]
 
 
@@ -369,6 +495,11 @@ _DISPATCH = {
     "start_review": tool_start_review,
     "working_status": tool_working_status,
     "inspect_note": tool_inspect_note,
+    "capture_sensory": tool_capture_sensory,
+    "list_sensory": tool_list_sensory,
+    "commit_sensory": tool_commit_sensory,
+    "transition_note": tool_transition_note,
+    "note_state": tool_note_state,
 }
 
 
