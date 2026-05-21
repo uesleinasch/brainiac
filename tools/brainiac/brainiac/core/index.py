@@ -104,6 +104,21 @@ def connect(db_path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_accesses_note_ts ON accesses(note_id, ts);
     """)
     conn.commit()
+
+    # Phase 8: sensory_buffer (transient drafts)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sensory_buffer (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            body TEXT NOT NULL,
+            created TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            proposed_type TEXT,
+            proposed_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sensory_expires ON sensory_buffer(expires_at);
+    """)
+    conn.commit()
     return conn
 
 

@@ -22,6 +22,8 @@ class Config:
     # Probabilistic consolidation (Phase 7)
     consolidation_learning_rate: float = 0.5
     consolidation_probability_threshold: float = 0.6
+    # Atkinson-Shiffrin states (Phase 8)
+    sensory_ttl_minutes: int = 5
 
 
 def load_config(root: Path) -> Config:

@@ -352,3 +352,57 @@ def test_tool_add_note_emotional_weight_defaults_to_0_5(fake_brainiac, monkeypat
     )
     fm, _ = parse_note(fake_brainiac / "semanticMemory" / "2026-05-20-ew-def.md")
     assert fm.emotional_weight == 0.5
+
+
+def test_tool_capture_sensory_inserts_into_buffer(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_capture_sensory
+
+    result = tool_capture_sensory(body="rascunho", title="x")
+    assert result["id"].startswith("sensory-")
+
+
+def test_tool_list_sensory_returns_active_entries(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_capture_sensory, tool_list_sensory
+
+    tool_capture_sensory(body="a")
+    tool_capture_sensory(body="b")
+    entries = tool_list_sensory()
+    assert len(entries) == 2
+
+
+def test_tool_commit_sensory_promotes_to_working(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_capture_sensory, tool_commit_sensory
+
+    s = tool_capture_sensory(body="# title\n\nbody")
+    result = tool_commit_sensory(
+        sensory_id=s["id"], note_type="semantic", final_id="2026-05-20-promoted",
+    )
+    assert result["id"] == "2026-05-20-promoted"
+
+
+def test_tool_transition_note_working_to_long_term(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_transition_note
+
+    tool_add_note(
+        note_id="2026-05-20-t", note_type="working",
+        title="x", body="# x",
+    )
+    result = tool_transition_note(note_id="2026-05-20-t", target_state="long_term")
+    assert result["new_state"] == "long_term"
+
+
+def test_tool_note_state_returns_state_and_probabilities(fake_brainiac, monkeypatch):
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from brainiac.mcp_server import tool_add_note, tool_note_state
+
+    tool_add_note(
+        note_id="2026-05-20-ns", note_type="working",
+        title="x", body="# x",
+    )
+    result = tool_note_state(note_id="2026-05-20-ns")
+    assert result["current_state"] == "working"
+    assert "transitions" in result
