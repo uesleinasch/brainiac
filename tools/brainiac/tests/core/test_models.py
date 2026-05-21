@@ -80,3 +80,30 @@ class TestSM2Reps:
         from pydantic import ValidationError
         with pytest.raises(ValidationError):
             SM2(reps=-1, next_review=date(2026, 5, 21))
+
+
+def test_note_frontmatter_emotional_weight_default():
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    fm = NoteFrontmatter(
+        id="2026-05-20-ew", type="semantic", created=now, last_access=now,
+        access_count=0, strength=1.0,
+    )
+    assert fm.emotional_weight == 0.5
+
+
+def test_note_frontmatter_accepts_explicit_emotional_weight():
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    fm = NoteFrontmatter(
+        id="2026-05-20-ew2", type="semantic", created=now, last_access=now,
+        access_count=0, strength=1.0, emotional_weight=0.9,
+    )
+    assert fm.emotional_weight == 0.9
+
+
+def test_note_frontmatter_rejects_emotional_weight_out_of_range():
+    now = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValidationError):
+        NoteFrontmatter(
+            id="2026-05-20-ew3", type="semantic", created=now, last_access=now,
+            access_count=0, strength=1.0, emotional_weight=1.5,
+        )

@@ -291,6 +291,22 @@ def test_recall_ranking_boosts_more_activated_notes(fake_brainiac, embedder_stub
     assert ids.index("2026-05-20-hot") < ids.index("2026-05-20-cold")
 
 
+def test_connect_adds_emotional_weight_column(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    conn = connect(index_db_path(fake_brainiac))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(notes)").fetchall()]
+    assert "emotional_weight" in cols
+
+
+def test_connect_adds_novelty_score_column(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    conn = connect(index_db_path(fake_brainiac))
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(notes)").fetchall()]
+    assert "novelty_score" in cols
+
+
 def test_recall_uses_spreading_activation_for_2_hops(fake_brainiac, embedder_stub):
     """Co-activation: nó a 2 hops da seed aparece via spreading."""
     from brainiac.core.index import add_link, connect, index_note, recall

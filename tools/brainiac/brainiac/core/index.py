@@ -80,6 +80,18 @@ def connect(db_path: Path) -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # Phase 7: emotional_weight + novelty_score
+    try:
+        conn.execute("ALTER TABLE notes ADD COLUMN emotional_weight REAL NOT NULL DEFAULT 0.5")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE notes ADD COLUMN novelty_score REAL")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     # Phase 5: accesses table for ACT-R activation
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS accesses (
@@ -132,8 +144,8 @@ def index_note(
         """
         INSERT OR REPLACE INTO notes
         (id, path, type, created, last_access, access_count, strength,
-         tags, sm2_json, body_hash, archived)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         tags, sm2_json, body_hash, archived, emotional_weight, novelty_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         """,
         (
             fm.id, rel_path, fm.type,
@@ -143,6 +155,7 @@ def index_note(
             fm.sm2.model_dump_json() if fm.sm2 else None,
             bh,
             1 if archived else 0,
+            fm.emotional_weight,
         ),
     )
 

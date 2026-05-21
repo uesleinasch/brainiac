@@ -73,11 +73,17 @@ def test_consolidation_candidates_requires_recent_access(fake_brainiac):
 
 
 def test_consolidation_candidates_requires_incoming_link(fake_brainiac):
+    """Primary path requires fan_in≥1. Suppress prob path (E=0) to isolate."""
     from brainiac.core.consolidate import consolidation_candidates
 
     _seed(fake_brainiac, "2026-05-17-nolink", "working",
           access_count=5, last_access=RECENT, links_from=[])
     conn = connect(index_db_path(fake_brainiac))
+    # Zero out emotional_weight so probabilistic path can't fire (P=0).
+    conn.execute(
+        "UPDATE notes SET emotional_weight = 0 WHERE id = ?", ("2026-05-17-nolink",)
+    )
+    conn.commit()
     candidates = consolidation_candidates(conn, now=NOW)
     assert all(c["id"] != "2026-05-17-nolink" for c in candidates)
 
@@ -215,3 +221,74 @@ def test_consolidation_candidates_includes_borderline_high_activation(fake_brain
     candidates = consolidation_candidates(conn, now=now)
     ids = [c["id"] for c in candidates]
     assert "2026-05-18-border" in ids
+
+
+def test_consolidation_candidates_includes_high_probability_note(fake_brainiac):
+    """R=5 + E=0.9 + n=0.9 → P≈0.87 ≥ 0.6 → candidato."""
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    # access_count=5, emotional_weight=0.9, novelty=0.9 (cached)
+    _seed(fake_brainiac, "2026-05-18-prob-hi", "working",
+          access_count=5, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    conn.execute(
+        "UPDATE notes SET emotional_weight = 0.9 WHERE id = ?",
+        ("2026-05-18-prob-hi",),
+    )
+    cache_novelty(conn, "2026-05-18-prob-hi", 0.9)
+
+    candidates = consolidation_candidates(conn, now=now)
+    ids = [c["id"] for c in candidates]
+    assert "2026-05-18-prob-hi" in ids
+
+
+def test_consolidation_candidates_excludes_low_probability_note(fake_brainiac):
+    """R=1 + E=0.5 + n=0.5 → P≈0.06 < 0.6 → não candidato pelo path probabilístico."""
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    _seed(fake_brainiac, "2026-05-18-prob-lo", "working",
+          access_count=1, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    cache_novelty(conn, "2026-05-18-prob-lo", 0.5)
+    # emotional_weight defaults to 0.5
+
+    candidates = consolidation_candidates(conn, now=now)
+    ids = [c["id"] for c in candidates]
+    assert "2026-05-18-prob-lo" not in ids
+
+
+def test_consolidation_candidates_includes_probability_field(fake_brainiac):
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    _seed(fake_brainiac, "2026-05-18-prob-field", "working",
+          access_count=5, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    conn.execute(
+        "UPDATE notes SET emotional_weight = 1.0 WHERE id = ?",
+        ("2026-05-18-prob-field",),
+    )
+    cache_novelty(conn, "2026-05-18-prob-field", 1.0)
+
+    candidates = consolidation_candidates(conn, now=now)
+    cand = next((c for c in candidates if c["id"] == "2026-05-18-prob-field"), None)
+    assert cand is not None
+    assert "consolidation_probability" in cand
+    assert 0.0 <= cand["consolidation_probability"] <= 1.0

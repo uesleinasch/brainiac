@@ -81,6 +81,51 @@ def consolidation_candidates(
                         "last_access": r[3], "fan_in": r[4],
                         "suggested_type": "semantic",
                     })
+                    seen.add(r[0])
+
+    # Phase 7: probabilistic path
+    import math
+    from brainiac.core.config import Config, load_config
+    from brainiac.core.novelty import get_or_compute_novelty
+    from brainiac.core.paths import find_root
+
+    root = find_root()
+    config = load_config(root) if root else Config()
+
+    prob_rows = conn.execute(
+        """
+        SELECT n.id, n.path, n.access_count, n.last_access,
+               n.emotional_weight, COUNT(l.src) as fan_in
+        FROM notes n
+        LEFT JOIN links l ON l.dst = n.id AND l.kind = 'explicit'
+        WHERE n.type = 'working'
+          AND n.archived = 0
+          AND n.last_access >= ?
+        GROUP BY n.id
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    for r in prob_rows:
+        nid = r[0]
+        if nid in seen:
+            continue
+        R = r[2]  # access_count
+        E = r[4]  # emotional_weight
+        n_score = get_or_compute_novelty(conn, nid)
+        alpha = config.consolidation_learning_rate
+        p = 1.0 - math.exp(-alpha * R * E * n_score)
+        if p >= config.consolidation_probability_threshold:
+            out.append({
+                "id": nid,
+                "path": r[1],
+                "access_count": R,
+                "last_access": r[3],
+                "fan_in": r[5],
+                "suggested_type": "semantic",
+                "consolidation_probability": p,
+            })
+            seen.add(nid)
 
     return out
 

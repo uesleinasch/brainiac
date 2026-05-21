@@ -29,3 +29,4 @@ class NoteFrontmatter(BaseModel):
     tags: list[str] = Field(default_factory=list)
     sm2: SM2 | None = None
     source: NoteSource = "manual"
+    emotional_weight: float = Field(default=0.5, ge=0.0, le=1.0)
