@@ -690,3 +690,100 @@ def test_spreading_does_not_leak_archived_notes(fake_brainiac, embedder_stub, mo
     hits_inc = recall(conn, "DKG protocol distributed keys", k=10, include_archived=True)
     hit_ids_inc = [h["id"] for h in hits_inc]
     assert "2026-05-20-arc-leak" in hit_ids_inc
+
+
+# --- DoD Phase 7 ---
+
+
+def test_high_emotional_weight_amplifies_consolidation_probability(fake_brainiac, monkeypatch):
+    """DoD: high E + high n + medium R → P alta o suficiente para promover."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+    from brainiac.core.paths import index_db_path
+    from tests.core.test_consolidate import _seed
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    # Low E (default 0.5): R=3 + E=0.5 + n=0.5 → P=0.31, not promoted
+    _seed(fake_brainiac, "2026-05-18-low-e", "working",
+          access_count=3, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    cache_novelty(conn, "2026-05-18-low-e", 0.5)
+
+    # High E: R=3 + E=0.9 + n=0.9 → P=0.71, promoted
+    _seed(fake_brainiac, "2026-05-18-high-e", "working",
+          access_count=3, last_access=recent)
+    conn.execute(
+        "UPDATE notes SET emotional_weight = 0.9 WHERE id = ?",
+        ("2026-05-18-high-e",),
+    )
+    cache_novelty(conn, "2026-05-18-high-e", 0.9)
+
+    candidates = consolidation_candidates(conn, now=now)
+    ids = [c["id"] for c in candidates]
+    assert "2026-05-18-high-e" in ids
+    assert "2026-05-18-low-e" not in ids
+
+
+def test_novel_note_higher_probability_than_redundant(fake_brainiac, monkeypatch):
+    """DoD: 2 notas mesmo R e E; novel tem P maior."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.consolidate import consolidation_candidates
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+    from brainiac.core.paths import index_db_path
+    from tests.core.test_consolidate import _seed
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    _seed(fake_brainiac, "2026-05-18-novel", "working", access_count=5, last_access=recent)
+    _seed(fake_brainiac, "2026-05-18-redundant", "working", access_count=5, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    for nid in ["2026-05-18-novel", "2026-05-18-redundant"]:
+        conn.execute(
+            "UPDATE notes SET emotional_weight = 0.9 WHERE id = ?", (nid,),
+        )
+    cache_novelty(conn, "2026-05-18-novel", 0.9)
+    cache_novelty(conn, "2026-05-18-redundant", 0.1)
+
+    candidates = consolidation_candidates(conn, now=now)
+    novel_cand = next((c for c in candidates if c["id"] == "2026-05-18-novel"), None)
+    redundant_cand = next((c for c in candidates if c["id"] == "2026-05-18-redundant"), None)
+
+    assert novel_cand is not None
+    # Redundant has very low novelty → P ≈ 0.20, below 0.6 threshold
+    assert redundant_cand is None
+
+
+def test_consolidate_check_returns_probability_via_mcp(fake_brainiac, monkeypatch):
+    """DoD: tool_consolidate_check propaga consolidation_probability quando vem do prob path."""
+    monkeypatch.setenv("BRAINIAC_ROOT", str(fake_brainiac))
+    from datetime import datetime, timedelta, timezone
+    from brainiac.core.index import connect
+    from brainiac.core.novelty import cache_novelty
+    from brainiac.core.paths import index_db_path
+    from brainiac.mcp_server import tool_consolidate_check
+    from tests.core.test_consolidate import _seed
+
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(days=2)
+
+    _seed(fake_brainiac, "2026-05-18-mcp-prob", "working",
+          access_count=5, last_access=recent)
+    conn = connect(index_db_path(fake_brainiac))
+    conn.execute(
+        "UPDATE notes SET emotional_weight = 1.0 WHERE id = ?",
+        ("2026-05-18-mcp-prob",),
+    )
+    cache_novelty(conn, "2026-05-18-mcp-prob", 1.0)
+
+    candidates = tool_consolidate_check()
+    cand = next((c for c in candidates if c["id"] == "2026-05-18-mcp-prob"), None)
+    assert cand is not None
+    assert "consolidation_probability" in cand
