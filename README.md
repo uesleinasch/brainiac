@@ -65,18 +65,149 @@ Sem dependências de cloud, banco externo ou UI. Tudo local, em arquivos.
 
 ## Quickstart
 
+### 1. Pré-requisitos
+
+- **Python ≥ 3.11** (testado em 3.11 e 3.12)
+- **git**
+
+### 2. Clone
+
 ```bash
-# Instalação
+git clone <repo-url> brainiac
+cd brainiac
+```
+
+A raiz do repositório é o seu **brainiac root** — ela contém as 4 memory dirs (`shortMemory/`, `longMemory/`, `semanticMemory/`, `memoryTransfer/`) que já vêm criadas vazias.
+
+### 3. Instalar o pacote Python
+
+O código vive em `tools/brainiac/`. Faça install editável dentro de um venv:
+
+```bash
 cd tools/brainiac
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-
-# Inicia MCP server (para Claude Code)
-.venv/bin/brainiac mcp
-
-# Ou use a CLI diretamente
-.venv/bin/brainiac stats
 ```
+
+Isso instala:
+- O comando `brainiac` no PATH do venv
+- Deps de runtime (`mcp`, `pydantic`, `sentence-transformers`, `sqlite-vec`, `click`, `numpy`, `python-frontmatter`)
+- Deps de dev (`pytest`, `pytest-cov`, `ruff`)
+
+Verificar:
+```bash
+.venv/bin/brainiac --help
+```
+
+### 4. Inicializar o índice
+
+Volte pra raiz do brainiac e construa o índice SQLite:
+
+```bash
+cd ../..    # se você ainda está em tools/brainiac
+tools/brainiac/.venv/bin/brainiac reindex
+# → reindexed 0 active note(s) from /path/to/brainiac
+```
+
+Cria `memoryTransfer/index.sqlite` com FTS5, sqlite-vec (embeddings 384-dim), `accesses` (ACT-R) e `sensory_buffer`.
+
+### 5. Rodar os testes (opcional, mas recomendado)
+
+```bash
+cd tools/brainiac
+.venv/bin/pytest --ignore=tests/core/test_embeddings.py --no-cov
+# → 340 passed
+```
+
+`test_embeddings.py` é excluído porque carrega o modelo `paraphrase-multilingual-MiniLM-L12-v2` (~3s + download de ~430MB na 1ª vez). Pra rodar incluindo:
+```bash
+.venv/bin/pytest    # primeira vez: ~30s+ (download do modelo)
+```
+
+### 6. Usar a CLI
+
+A partir da raiz do brainiac:
+
+```bash
+# Ative o venv pra evitar prefixar tudo
+source tools/brainiac/.venv/bin/activate
+
+brainiac stats                # snapshot do estado
+brainiac reindex              # reconstrói index a partir dos .md
+brainiac decay --dry-run      # mostraria o que arquivaria
+brainiac consolidate --auto   # promove working → long (3 paths)
+brainiac review               # sessão SM-2 interativa
+brainiac inspect <id>         # 3 eixos cognitivos + acessos
+brainiac state <id>           # estado atual + transition probabilities
+brainiac sensory list         # rascunhos sensory ativos
+
+deactivate                    # quando terminar
+```
+
+Se preferir não ativar o venv, use o caminho absoluto: `tools/brainiac/.venv/bin/brainiac <cmd>`.
+
+### 7. Conectar ao Claude Code (ou outro cliente MCP)
+
+O arquivo `.mcp.json` na raiz do projeto já está configurado:
+
+```json
+{
+  "mcpServers": {
+    "brainiac": {
+      "command": "brainiac",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Pré-requisito:** o comando `brainiac` precisa estar no PATH visível ao cliente MCP. Duas opções:
+
+**Opção A** — ative o venv antes de abrir o Claude Code:
+```bash
+source tools/brainiac/.venv/bin/activate
+# abrir o Claude Code no diretório do brainiac
+```
+
+**Opção B** — use caminho absoluto no `.mcp.json` (mais robusto):
+```json
+{
+  "mcpServers": {
+    "brainiac": {
+      "command": "/caminho/absoluto/para/tools/brainiac/.venv/bin/brainiac",
+      "args": ["mcp"],
+      "env": {
+        "BRAINIAC_ROOT": "/caminho/absoluto/para/brainiac"
+      }
+    }
+  }
+}
+```
+
+Quando o cliente MCP abrir o projeto, vai detectar `.mcp.json` e ativar o servidor `brainiac`. Aprove. As 4 skills em `.claude/skills/` (`brainiac-capture`, `brainiac-recall`, `brainiac-housekeep`, `brainiac-review`) orquestram o uso das 17 ferramentas MCP através de comandos em linguagem natural ("anota que…", "lembre o que sabemos sobre X", "vamos revisar?").
+
+### 8. Configuração opcional
+
+Crie `brainiac.toml` na raiz do brainiac (todos os campos opcionais):
+
+```toml
+working_memory_limit = 7                       # disciplina mais rígida
+consolidation_probability_threshold = 0.7      # promoção mais conservadora
+sensory_ttl_minutes = 10                       # buffer transiente mais longo
+spreading_max_hops = 2                         # recall mais focado
+```
+
+Lista completa de campos em [Configuração opcional](#configuração-opcional) abaixo.
+
+### Troubleshooting
+
+| Sintoma | Causa | Fix |
+|---|---|---|
+| `brainiac: command not found` | venv não ativado | `source tools/brainiac/.venv/bin/activate` ou usar caminho absoluto |
+| `sqlite_vec` extension fails to load | SQLite < 3.40 | Use Python 3.12+ (traz SQLite mais recente via stdlib) |
+| Testes lentos no 1º run | `sentence-transformers` baixando modelo | Esperado. Cache em `~/.cache/huggingface/`, daí em diante é rápido |
+| `no brainiac root found` | rodando de pasta sem as 4 memory dirs | `cd` pra raiz que contém `shortMemory/`, `longMemory/`, etc. — ou setar `BRAINIAC_ROOT` |
+| MCP server não aparece no Claude Code | comando `brainiac` fora do PATH ou `.mcp.json` não aprovado | Use a Opção B (caminho absoluto) ou aprove o prompt do cliente |
 
 Aponte o brainiac para o root das suas memórias com a variável `BRAINIAC_ROOT` ou rode os comandos a partir do diretório que contém `shortMemory/`, `longMemory/`, `semanticMemory/`, `memoryTransfer/`.
 
