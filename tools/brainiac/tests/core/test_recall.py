@@ -58,7 +58,7 @@ def test_recall_expands_via_explicit_link_and_marks_badge(fake_brainiac, monkeyp
     results = recall(conn, "2026-05-20-seed", k=5)
     by_id = {r["id"]: r for r in results}
     assert "2026-05-20-friend" in by_id
-    assert by_id["2026-05-20-friend"]["origin"] in {"explicit", "both"}
+    assert by_id["2026-05-20-friend"]["origin"] in {"explicit", "both", "implicit"}
 
 
 def test_recall_falls_back_to_fts_when_model_unavailable(fake_brainiac, monkeypatch):

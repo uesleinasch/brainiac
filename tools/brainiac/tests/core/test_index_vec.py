@@ -289,3 +289,31 @@ def test_recall_ranking_boosts_more_activated_notes(fake_brainiac, embedder_stub
     ids = [h["id"] for h in hits]
     # "hot" comes first thanks to activation boost
     assert ids.index("2026-05-20-hot") < ids.index("2026-05-20-cold")
+
+
+def test_recall_uses_spreading_activation_for_2_hops(fake_brainiac, embedder_stub):
+    """Co-activation: nó a 2 hops da seed aparece via spreading."""
+    from brainiac.core.index import add_link, connect, index_note, recall
+    from brainiac.core.note import write_note
+    from brainiac.core.paths import index_db_path, note_path
+    from tests.conftest import make_fm
+
+    conn = connect(index_db_path(fake_brainiac))
+    # Create A, B, C with A relevant to query, B linking A→C, C not directly relevant
+    for nid, body in [
+        ("2026-05-20-seed", "# seed\n\nDKG protocol distributed keys"),
+        ("2026-05-20-bridge", "# bridge\n\nbridge content"),
+        ("2026-05-20-distant", "# distant\n\nunrelated content"),
+    ]:
+        fm = make_fm(nid, "semantic")
+        p = note_path(fake_brainiac, nid, "semantic")
+        write_note(p, fm, body)
+        index_note(conn, fm, body, str(p.relative_to(fake_brainiac)))
+
+    add_link(conn, fake_brainiac, "2026-05-20-seed", "2026-05-20-bridge")
+    add_link(conn, fake_brainiac, "2026-05-20-bridge", "2026-05-20-distant")
+
+    hits = recall(conn, "DKG protocol distributed keys", k=5)
+    hit_ids = [h["id"] for h in hits]
+    # distant should appear via 2-hop spreading
+    assert "2026-05-20-distant" in hit_ids
