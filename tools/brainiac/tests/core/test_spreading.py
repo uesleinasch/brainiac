@@ -106,3 +106,48 @@ def test_spread_high_decay_amplifies_distant_nodes():
     out_low = spread_activation(seeds, edges, max_hops=2, decay=0.1, floor=0.0)
     # higher decay → more activation reaches c
     assert out_high["c"] > out_low["c"]
+
+
+def test_load_edges_returns_explicit_links(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.spreading import load_edges
+
+    conn = connect(index_db_path(fake_brainiac))
+    conn.execute(
+        "INSERT INTO links (src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+        ("a", "b"),
+    )
+    conn.commit()
+
+    edges = load_edges(conn)
+    assert ("b", 1.0) in edges["a"]
+
+
+def test_load_edges_empty_db_returns_empty(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.spreading import load_edges
+
+    conn = connect(index_db_path(fake_brainiac))
+    edges = load_edges(conn)
+    assert edges == {}
+
+
+def test_load_edges_multiple_destinations(fake_brainiac):
+    from brainiac.core.index import connect
+    from brainiac.core.paths import index_db_path
+    from brainiac.core.spreading import load_edges
+
+    conn = connect(index_db_path(fake_brainiac))
+    for dst in ["b", "c", "d"]:
+        conn.execute(
+            "INSERT INTO links (src, dst, kind, weight) VALUES (?, ?, 'explicit', 1.0)",
+            ("a", dst),
+        )
+    conn.commit()
+
+    edges = load_edges(conn)
+    assert len(edges["a"]) == 3
+    dsts = {d for d, _ in edges["a"]}
+    assert dsts == {"b", "c", "d"}

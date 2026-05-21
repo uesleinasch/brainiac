@@ -48,3 +48,32 @@ def spread_activation(
             break
 
     return {nid: score for nid, score in a.items() if score >= floor}
+
+
+import sqlite3
+
+
+def load_edges(
+    conn: sqlite3.Connection,
+    note_ids: list[str] | None = None,
+) -> dict[str, list[tuple[str, float]]]:
+    """Load adjacency list from links table.
+
+    Returns {src: [(dst, weight), ...]}. If note_ids given, restricts to edges
+    where src is in the set (still returns full subgraph reachable from those).
+    """
+    if note_ids is None:
+        rows = conn.execute(
+            "SELECT src, dst, weight FROM links"
+        ).fetchall()
+    else:
+        placeholders = ",".join("?" * len(note_ids))
+        rows = conn.execute(
+            f"SELECT src, dst, weight FROM links WHERE src IN ({placeholders})",
+            note_ids,
+        ).fetchall()
+
+    edges: dict[str, list[tuple[str, float]]] = {}
+    for src, dst, weight in rows:
+        edges.setdefault(src, []).append((dst, weight))
+    return edges
