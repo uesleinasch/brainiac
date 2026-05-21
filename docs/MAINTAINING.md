@@ -206,22 +206,29 @@ Para cada dep não-major, atualize em PR separado e rode a suite. Major bumps pr
 
 ### Dependabot
 
-Configurar `.github/dependabot.yml` quando for habilitar updates automáticos. Exemplo mínimo:
+O repositório já tem [`.github/dependabot.yml`](../.github/dependabot.yml) configurado:
 
-```yaml
-version: 2
-updates:
-  - package-ecosystem: "pip"
-    directory: "/tools/brainiac"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 5
+| Ecosystem | Caminho | Frequência | Limite de PRs | Grouping |
+|---|---|---|---|---|
+| `pip` | `/tools/brainiac` | Mensal (segunda 09h, BRT) | 5 | minor + patch agrupados em 1 PR; major individual |
+| `github-actions` | `/` | Mensal (segunda 09h, BRT) | 3 | minor + patch agrupados |
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-```
+**Após push inicial no GitHub:**
+
+1. Habilitar **Settings → Code security → Dependabot version updates**
+2. Os PRs aparecerão automaticamente com prefixos:
+   - `chore(deps): bump <pkg> from X to Y` (Python production)
+   - `chore(deps-dev): bump <pkg>` (Python dev)
+   - `chore(ci): bump <action>` (GitHub Actions)
+3. Reviewer auto-assigned: `@uesleinasch`
+4. Labels aplicadas: `dependencies` + `python` ou `ci`
+
+**Bumps majors precisam de:**
+- Verificação manual de breaking changes (CHANGELOG do pacote)
+- Issue de tracking se a migração for significativa
+- Atualização de testes que dependam de API antiga
+
+**Security updates** ignoram o grouping e chegam como PR individuais — priorizar review.
 
 ---
 

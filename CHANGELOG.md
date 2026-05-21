@@ -11,6 +11,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e es
 - Templates de issue (bug, feature, question) e pull request em `.github/`
 - `CODEOWNERS` para reviewers automáticos
 - Workflow de CI (`.github/workflows/ci.yml`): pytest em Python 3.11/3.12, ruff lint, shellcheck nos scripts
+- `.github/dependabot.yml` — updates mensais agrupados de Python deps (`tools/brainiac/`) e GitHub Actions
 - `scripts/install.sh` — instalador one-line para Linux (clona, cria venv, configura memory root, instala skills, registra MCP server)
 - `scripts/update.sh` — atualizador idempotente
 - `docs/MAINTAINING.md` com guia de branch protection rules e processo de release
